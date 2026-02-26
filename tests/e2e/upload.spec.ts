@@ -1,5 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { fileURLToPath } from 'url';
 import path from 'path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test.describe('Upload flow', () => {
   test('uploading an image starts processing and reaches results', async ({ page }) => {
