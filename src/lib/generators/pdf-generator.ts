@@ -40,20 +40,32 @@ export async function generateSearchablePdf(
 
     // Overlay invisible text at bounding box positions
     for (const region of result.regions) {
-      const [x, y, w, h] = region.bbox;
+      const bbox = normalizeBbox(region.bbox);
+      if (!bbox || !region.text.trim()) {
+        continue;
+      }
+
+      const [x, y, _w, h] = bbox;
       const fontSize = Math.max(4, h * 0.8);
 
       // PDF coordinates: origin is bottom-left, image coordinates: origin is top-left
       const pdfY = pageImage.height - y - h;
+      if (!Number.isFinite(pdfY) || !Number.isFinite(fontSize)) {
+        continue;
+      }
 
-      page.drawText(region.text, {
-        x,
-        y: pdfY,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-        opacity: 0, // Invisible text
-      });
+      try {
+        page.drawText(region.text, {
+          x,
+          y: pdfY,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+          opacity: 0, // Invisible text
+        });
+      } catch {
+        // Skip malformed region data rather than failing the whole PDF export.
+      }
     }
   }
 
@@ -70,4 +82,17 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
+}
+
+function normalizeBbox(
+  bbox: [number, number, number, number],
+): [number, number, number, number] | null {
+  const [x, y, w, h] = bbox;
+  if (![x, y, w, h].every((value) => Number.isFinite(value))) {
+    return null;
+  }
+  if (w <= 0 || h <= 0) {
+    return null;
+  }
+  return [x, y, w, h];
 }

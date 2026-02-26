@@ -32,4 +32,19 @@ describe('generateSearchablePdf', () => {
     const blob = await generateSearchablePdf([], []);
     expect(blob).toBeInstanceOf(Blob);
   });
+
+  it('skips invalid OCR regions instead of throwing', async () => {
+    const malformedResults: OCRResult[] = [
+      {
+        text: 'Hello',
+        regions: [
+          { text: 'Broken', bbox: [10, 10, 50, Number.NaN] },
+          { text: 'Also broken', bbox: [10, 10, 0, 20] },
+          { text: 'Valid', bbox: [10, 10, 50, 20] },
+        ],
+      },
+    ];
+
+    await expect(generateSearchablePdf(malformedResults, mockPages)).resolves.toBeInstanceOf(Blob);
+  });
 });
