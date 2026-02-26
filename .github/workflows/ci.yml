@@ -26,6 +26,12 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Install Playwright browsers
+        run: bunx playwright install chromium --with-deps
+
+      - name: Run e2e tests
+        run: bun run test:e2e
+
   deploy:
     needs: ci
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
