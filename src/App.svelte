@@ -27,7 +27,12 @@
   let engine: OCREngine | null = null;
 
   onMount(async () => {
-    engineTier = await detectEngineTier();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('engine') === 'mock') {
+      engineTier = 'mock' as EngineTier;
+    } else {
+      engineTier = await detectEngineTier();
+    }
   });
 
   async function handleFiles(files: File[]) {

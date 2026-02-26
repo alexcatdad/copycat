@@ -2,8 +2,12 @@ import type { EngineTier, OCREngine } from '../types';
 
 export { MockEngine } from './mock-engine';
 
-export async function createEngine(tier: EngineTier): Promise<OCREngine> {
+export async function createEngine(tier: EngineTier | 'mock'): Promise<OCREngine> {
   switch (tier) {
+    case 'mock': {
+      const { MockEngine } = await import('./mock-engine');
+      return new MockEngine();
+    }
     case 'premium': {
       const { Florence2Engine } = await import('./florence2-engine');
       return new Florence2Engine('webgpu');
