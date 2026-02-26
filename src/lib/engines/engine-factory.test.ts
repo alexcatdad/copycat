@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEngine } from './index';
 import { Florence2Engine } from './florence2-engine';
+import { MockEngine } from './mock-engine';
 import { TesseractEngine } from './tesseract-engine';
 
 vi.mock('./florence2-engine');
+vi.mock('./mock-engine');
 vi.mock('./tesseract-engine');
 
 describe('createEngine', () => {
@@ -18,7 +20,15 @@ describe('createEngine', () => {
   });
 
   it('returns TesseractEngine for basic tier', async () => {
-    const engine = await createEngine('basic');
+    await createEngine('basic');
     expect(TesseractEngine).toHaveBeenCalled();
+  });
+
+  it('returns MockEngine for mock tier and forwards profile', async () => {
+    await createEngine('mock', { mockProfile: 'premium' });
+    expect(MockEngine).toHaveBeenCalledWith({
+      profile: 'premium',
+      responses: undefined,
+    });
   });
 });

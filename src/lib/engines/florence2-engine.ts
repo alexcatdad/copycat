@@ -8,6 +8,13 @@ import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 
 const MODEL_ID = 'onnx-community/Florence-2-base-ft';
 
+type FlorenceDtypeConfig = {
+  embed_tokens: 'fp16' | 'fp32';
+  vision_encoder: 'fp16' | 'fp32';
+  encoder_model: 'q8' | 'q4';
+  decoder_model_merged: 'q8' | 'q4';
+};
+
 export class Florence2Engine implements OCREngine {
   private model: any = null;
   private processor: any = null;
@@ -21,14 +28,35 @@ export class Florence2Engine implements OCREngine {
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
     onProgress?.(0);
 
-    const dtypeConfig = this.device === 'webgpu'
-      ? { embed_tokens: 'fp16' as const, vision_encoder: 'fp16' as const, encoder_model: 'q4' as const, decoder_model_merged: 'q4' as const }
-      : { embed_tokens: 'fp32' as const, vision_encoder: 'fp32' as const, encoder_model: 'q4' as const, decoder_model_merged: 'q4' as const };
+    // Prefer q8 for OCR fidelity, then fall back to q4 if runtime/memory is constrained.
+    const dtypeCandidates: FlorenceDtypeConfig[] = this.device === 'webgpu'
+      ? [
+        { embed_tokens: 'fp16', vision_encoder: 'fp16', encoder_model: 'q8', decoder_model_merged: 'q8' },
+        { embed_tokens: 'fp16', vision_encoder: 'fp16', encoder_model: 'q4', decoder_model_merged: 'q4' },
+      ]
+      : [
+        { embed_tokens: 'fp32', vision_encoder: 'fp32', encoder_model: 'q8', decoder_model_merged: 'q8' },
+        { embed_tokens: 'fp32', vision_encoder: 'fp32', encoder_model: 'q4', decoder_model_merged: 'q4' },
+      ];
 
-    this.model = await Florence2ForConditionalGeneration.from_pretrained(MODEL_ID, {
-      dtype: dtypeConfig,
-      device: this.device,
-    });
+    let lastError: unknown;
+    for (const dtypeConfig of dtypeCandidates) {
+      try {
+        this.model = await Florence2ForConditionalGeneration.from_pretrained(MODEL_ID, {
+          dtype: dtypeConfig,
+          device: this.device,
+        });
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!this.model) {
+      throw lastError ?? new Error('Failed to initialize Florence-2 model');
+    }
+
     onProgress?.(0.5);
 
     this.processor = await AutoProcessor.from_pretrained(MODEL_ID);
@@ -52,7 +80,7 @@ export class Florence2Engine implements OCREngine {
     const generatedIds = await this.model.generate({
       ...textInputs,
       ...visionInputs,
-      max_new_tokens: 1024,
+      max_new_tokens: 2048,
     });
 
     const generatedText = this.tokenizer.batch_decode(generatedIds, {

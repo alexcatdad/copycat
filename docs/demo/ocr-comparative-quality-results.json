@@ -1,0 +1,59 @@
+{
+  "title": "CopyCat OCR Comparative Quality Demo",
+  "subtitle": "Tables, graphs, styled typography, and real-world benchmark items",
+  "groundTruth": "ACME Supplies, Inc.\nInvoice #4821\nBill To: Northwind Logistics\nItem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nItem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotal: $566.50\nTax (8.75%): $49.57\nTotal due: $616.07\nPayment due date: 2026-03-01\nNotes: Deliver before 5pm. Leave at loading dock B.",
+  "comparisons": [
+    {
+      "engine": "premium",
+      "extractedText": "ACME Supplies, Inc.\nInvoice #4821\nBill To: Northwind Logistics\nItem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nItem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotal: $566.50\nTax (8.75%): $49.57\nTotal due: $616.07\nPayment due date: 2026-03-01\nNotes: Deliver before 5pm. Leave at loading dock B.",
+      "metrics": {
+        "charErrorRate": 0,
+        "wordErrorRate": 0,
+        "charAccuracy": 1,
+        "wordAccuracy": 1
+      }
+    },
+    {
+      "engine": "standard",
+      "extractedText": "ACME Supplies, Inc.\nInvoice #4821\nBill To: Northwind Logistics\nItem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nItem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotal: $566.50\nTax (8.75%): $49.57\nTotal due: $616.70\nPayment due date: 2026-03-01\nNotes: Deliver before 5pm. Leave at loading dock B.",
+      "metrics": {
+        "charErrorRate": 0.006968641114982578,
+        "wordErrorRate": 0.02,
+        "charAccuracy": 0.9930313588850174,
+        "wordAccuracy": 0.98
+      }
+    },
+    {
+      "engine": "basic",
+      "extractedText": "ACME Suppiies Inc\nlnvoice #482l\nBiII To: Northwind Logistics\nltem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nltem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotaI: $566.50\nTax (8.75%): $49.57\nTotaI due: $616.70\nPayment due date: 2026-03-0l\nNotes: Deiiver before 5prn. Leave at loading dock B",
+      "metrics": {
+        "charErrorRate": 0.0627177700348432,
+        "wordErrorRate": 0.28,
+        "charAccuracy": 0.9372822299651568,
+        "wordAccuracy": 0.72
+      }
+    }
+  ],
+  "generatedAt": "2026-02-26T11:37:35.276Z",
+  "overviewParagraphs": [
+    "This demo evaluates OCR quality across premium, standard, and basic profiles using CER/WER metrics.",
+    "The benchmark text is modeled after practical business documents with headings, line-item style content, totals, and free-form notes."
+  ],
+  "realWorldItems": [
+    {
+      "item": "Invoice",
+      "sampleFields": "Invoice number, buyer name, line items, totals",
+      "challenge": "Decimal precision and currency punctuation"
+    },
+    {
+      "item": "Shipping label",
+      "sampleFields": "Address blocks, tracking IDs, postal codes",
+      "challenge": "Dense uppercase text and mixed alphanumerics"
+    },
+    {
+      "item": "Purchase order",
+      "sampleFields": "SKU table, quantities, unit price, notes",
+      "challenge": "Table-like layouts and tight row spacing"
+    }
+  ]
+}

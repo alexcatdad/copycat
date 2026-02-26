@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-02-26T12:09:40.743Z",
+  "groundTruth": "CopyCat Live OCR Benchmark\nReal Florence-2/Tesseract quality check\nACME Supplies, Inc.\nInvoice #4821\nBill To: Northwind Logistics\nItem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nItem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotal: $566.50\nTax (8.75%): $49.57\nTotal due: $616.07\nPayment due date: 2026-03-01\nNotes: Deliver before 5pm. Leave at loading dock B.",
+  "engines": {
+    "standard": {
+      "charErrorRate": 0.00847457627118644,
+      "wordErrorRate": 0.05172413793103448,
+      "charAccuracy": 0.9915254237288136,
+      "wordAccuracy": 0.9482758620689655
+    },
+    "basic": {
+      "charErrorRate": 0,
+      "wordErrorRate": 0,
+      "charAccuracy": 1,
+      "wordAccuracy": 1
+    }
+  },
+  "extractedText": {
+    "standard": "CopyCat Live OCR Benchmark Real Florence-2/Tesseract quality check ACME Supplies, Inc. Invoice #4821 Bill To: Northwind Logistics Item A4 Paper (5 boxes x 3 @ $89.50 = $268.50 Item USB-C Dock x 2 @ $149.00 = $298.00 Subtotal: $556.50 Tax (8.75%): $49.57 Total due: $16.07 Payment due date: 2026-03-01 Notes: Deliver before 5pm. Leave at loading dock B.",
+    "basic": "CopyCat Live OCR Benchmark\n\nReal Florence-2/Tesseract quality check\n\nACME Supplies, Inc.\n\nInvoice #4821\n\nBill To: Northwind Logistics\n\nItem A4 Paper (5 boxes) x 3 @ $89.50 = $268.50\nItem USB-C Dock x 2 @ $149.00 = $298.00\nSubtotal: $566.50\n\nTax (8.75%): $49.57\n\nTotal due: $616.07\n\nPayment due date: 2026-03-01\n\nNotes: Deliver before 5pm. Leave at loading dock B."
+  }
+}

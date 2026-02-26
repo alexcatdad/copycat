@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MockEngine } from './mock-engine';
+import { MockEngine, OCR_COMPARISON_GROUND_TRUTH, isMockProfile } from './mock-engine';
 import type { PageImage, OCRResult } from '../types';
 
 const mockPage: PageImage = {
@@ -54,5 +54,18 @@ describe('MockEngine', () => {
     const engine = new MockEngine();
     await engine.initialize();
     await expect(engine.dispose()).resolves.toBeUndefined();
+  });
+
+  it('returns profile-specific results for comparison scenarios', async () => {
+    const engine = new MockEngine({ profile: 'premium' });
+    await engine.initialize();
+    const result = await engine.processPage(mockPage);
+    expect(result.text).toBe(OCR_COMPARISON_GROUND_TRUTH);
+  });
+
+  it('validates supported mock profiles', () => {
+    expect(isMockProfile('default')).toBe(true);
+    expect(isMockProfile('premium')).toBe(true);
+    expect(isMockProfile('unknown')).toBe(false);
   });
 });

@@ -13,6 +13,7 @@
   import ResultsView from './lib/components/ResultsView.svelte';
   import Footer from './lib/components/Footer.svelte';
   import type { AppState, EngineTier, PageImage, OCRResult, OCREngine } from './lib/types';
+  import type { MockProfile } from './lib/engines';
 
   setupI18n();
 
@@ -26,18 +27,40 @@
   let modelLoadProgress = $state(0);
   let errorMessage = $state('');
   let engine: OCREngine | null = null;
+  let useMockEngine = $state(false);
+  let mockProfile = $state<MockProfile>('default');
+  let strictEngineSelection = $state(false);
+
+  function isEngineTier(value: string | null): value is EngineTier {
+    return value === 'premium' || value === 'standard' || value === 'basic';
+  }
 
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('engine') === 'mock') {
-      engineTier = 'mock' as EngineTier;
+    const requestedEngine = params.get('engine');
+    strictEngineSelection = params.get('strictEngine') === '1' || params.get('strictEngine') === 'true';
+
+    if (requestedEngine === 'mock') {
+      useMockEngine = true;
+      engineTier = 'basic';
+      const requestedProfile = params.get('mockProfile');
+      if (
+        requestedProfile === 'default'
+        || requestedProfile === 'premium'
+        || requestedProfile === 'standard'
+        || requestedProfile === 'basic'
+      ) {
+        mockProfile = requestedProfile;
+      }
+    } else if (isEngineTier(requestedEngine)) {
+      engineTier = requestedEngine;
     } else {
       engineTier = await detectEngineTier();
     }
   });
 
-  async function initEngine(tier: EngineTier | 'mock'): Promise<OCREngine> {
-    const eng = await createEngine(tier);
+  async function initEngine(tier: EngineTier): Promise<OCREngine> {
+    const eng = await createEngine(useMockEngine ? 'mock' : tier, { mockProfile });
     await eng.initialize((p) => { modelLoadProgress = p; });
     return eng;
   }
@@ -54,6 +77,10 @@
       try {
         engine = await initEngine(engineTier);
       } catch (err) {
+        if (strictEngineSelection) {
+          throw err;
+        }
+
         console.warn(`Engine ${engineTier} failed, falling back to basic:`, err);
         if (engineTier !== 'basic') {
           engineTier = 'basic';

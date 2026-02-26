@@ -10,7 +10,11 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "bunx playwright test"
+    "test:e2e": "bunx playwright test",
+    "test:e2e:quality": "bunx playwright test tests/e2e/ocr-quality-comparison.spec.ts",
+    "test:e2e:live": "LIVE_OCR=1 bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1",
+    "test:e2e:live:headed": "LIVE_OCR=1 bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1 --headed",
+    "demo:ocr-comparison": "bun run scripts/generate-ocr-comparison-demo.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

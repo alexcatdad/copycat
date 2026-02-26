@@ -6,7 +6,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-const RENDER_SCALE = 2; // Render at 2x for better OCR quality
+const RENDER_SCALE = 3; // Render at 3x for better OCR quality on small text and symbols
 
 export async function renderPdfPages(
   pdfBuffer: ArrayBuffer,

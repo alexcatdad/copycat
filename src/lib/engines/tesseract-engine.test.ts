@@ -2,18 +2,26 @@ import { describe, it, expect, vi } from 'vitest';
 import { TesseractEngine } from './tesseract-engine';
 import type { PageImage } from '../types';
 
+const { mockSetParameters, mockRecognize } = vi.hoisted(() => ({
+  mockSetParameters: vi.fn().mockResolvedValue({
+    data: {},
+  }),
+  mockRecognize: vi.fn().mockResolvedValue({
+    data: {
+      text: 'Hello World',
+      words: [
+        { text: 'Hello', bbox: { x0: 10, y0: 20, x1: 60, y1: 40 } },
+        { text: 'World', bbox: { x0: 70, y0: 20, x1: 120, y1: 40 } },
+      ],
+    },
+  }),
+}));
+
 // Mock tesseract.js
 vi.mock('tesseract.js', () => ({
   createWorker: vi.fn().mockResolvedValue({
-    recognize: vi.fn().mockResolvedValue({
-      data: {
-        text: 'Hello World',
-        words: [
-          { text: 'Hello', bbox: { x0: 10, y0: 20, x1: 60, y1: 40 } },
-          { text: 'World', bbox: { x0: 70, y0: 20, x1: 120, y1: 40 } },
-        ],
-      },
-    }),
+    setParameters: mockSetParameters,
+    recognize: mockRecognize,
     terminate: vi.fn().mockResolvedValue(undefined),
   }),
 }));
@@ -31,12 +39,17 @@ describe('TesseractEngine', () => {
     const onProgress = vi.fn();
     await engine.initialize(onProgress);
     expect(onProgress).toHaveBeenCalledWith(1);
+    expect(mockSetParameters).toHaveBeenCalledWith({
+      user_defined_dpi: '300',
+      preserve_interword_spaces: '1',
+    });
   });
 
   it('processPage returns OCRResult with text and regions from words', async () => {
     const engine = new TesseractEngine();
     await engine.initialize();
     const result = await engine.processPage(mockPage);
+    expect(mockRecognize).toHaveBeenCalledWith(mockPage.dataUrl, { rotateAuto: true });
     expect(result.text).toBe('Hello World');
     expect(result.regions).toHaveLength(2);
     expect(result.regions[0].text).toBe('Hello');

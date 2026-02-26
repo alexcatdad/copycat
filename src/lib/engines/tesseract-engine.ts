@@ -1,6 +1,11 @@
 import { createWorker } from 'tesseract.js';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 
+const DEFAULT_TESSERACT_PARAMS = {
+  user_defined_dpi: '300',
+  preserve_interword_spaces: '1',
+};
+
 export class TesseractEngine implements OCREngine {
   private worker: Awaited<ReturnType<typeof createWorker>> | null = null;
   private langs: string;
@@ -11,6 +16,7 @@ export class TesseractEngine implements OCREngine {
 
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
     this.worker = await createWorker(this.langs);
+    await this.worker.setParameters(DEFAULT_TESSERACT_PARAMS);
     onProgress?.(1);
   }
 
@@ -19,7 +25,9 @@ export class TesseractEngine implements OCREngine {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
-    const { data } = await this.worker.recognize(image.dataUrl);
+    const { data } = await this.worker.recognize(image.dataUrl, {
+      rotateAuto: true,
+    });
 
     const regions: OCRRegion[] = ((data as any).words ?? []).map((word: any) => ({
       text: word.text,

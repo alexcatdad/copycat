@@ -1,12 +1,24 @@
-import type { EngineTier, OCREngine } from '../types';
+import type { EngineTier, OCREngine, OCRResult } from '../types';
+import type { MockProfile } from './mock-engine';
 
-export { MockEngine } from './mock-engine';
+export type { MockProfile } from './mock-engine';
 
-export async function createEngine(tier: EngineTier | 'mock'): Promise<OCREngine> {
+export interface CreateEngineOptions {
+  mockProfile?: MockProfile;
+  mockResponses?: OCRResult[];
+}
+
+export async function createEngine(
+  tier: EngineTier | 'mock',
+  options: CreateEngineOptions = {},
+): Promise<OCREngine> {
   switch (tier) {
     case 'mock': {
       const { MockEngine } = await import('./mock-engine');
-      return new MockEngine();
+      return new MockEngine({
+        profile: options.mockProfile ?? 'default',
+        responses: options.mockResponses,
+      });
     }
     case 'premium': {
       const { Florence2Engine } = await import('./florence2-engine');
