@@ -1,0 +1,46 @@
+{
+  "app": {
+    "title": "CopyCat",
+    "subtitle": "OCR doar in browser",
+    "privacy": "100% local. Nicio data nu paraseste browserul tau."
+  },
+  "tier": {
+    "premium": "Accelerare GPU",
+    "standard": "Standard",
+    "basic": "OCR de baza",
+    "description": {
+      "premium": "Folosind Florence-2 cu accelerare WebGPU",
+      "standard": "Folosind Florence-2 cu procesare CPU",
+      "basic": "Folosind Tesseract.js pentru extragerea textului"
+    }
+  },
+  "upload": {
+    "dropzone": "Trage fisierele aici sau apasa pentru a incarca documente scanate",
+    "formats": "Formate suportate: PDF, PNG, JPG",
+    "button": "Selecteaza fisier"
+  },
+  "loading": {
+    "title": "Se incarca modelul OCR",
+    "progress": "Se descarca modelul... {progress}%",
+    "cached": "Modelul a fost incarcat din cache"
+  },
+  "processing": {
+    "title": "Se proceseaza",
+    "page": "Pagina {current} din {total}",
+    "extracting": "Se extrage textul..."
+  },
+  "results": {
+    "title": "Procesare completa",
+    "pages": "{count} pagini extrase",
+    "download": {
+      "docx": "Descarca DOCX",
+      "pdf": "Descarca PDF cu text selectabil"
+    },
+    "restart": "Proceseaza alt document"
+  },
+  "errors": {
+    "unsupported_file": "Tip de fisier neacceptat. Incarca un PDF, PNG sau JPG.",
+    "processing_failed": "Procesarea paginii {page} a esuat. Se trece la urmatoarea.",
+    "model_load_failed": "Incarcarea modelului OCR a esuat. Se trece la OCR de baza."
+  }
+}

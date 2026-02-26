@@ -1,0 +1,46 @@
+{
+  "app": {
+    "title": "CopyCat",
+    "subtitle": "Browser-Only OCR",
+    "privacy": "100% client-side. No data leaves your browser."
+  },
+  "tier": {
+    "premium": "GPU Accelerated",
+    "standard": "Standard",
+    "basic": "Basic OCR",
+    "description": {
+      "premium": "Using Florence-2 with WebGPU acceleration",
+      "standard": "Using Florence-2 with CPU processing",
+      "basic": "Using Tesseract.js for text extraction"
+    }
+  },
+  "upload": {
+    "dropzone": "Drop files here or click to upload scanned documents",
+    "formats": "Supports: PDF, PNG, JPG",
+    "button": "Select file"
+  },
+  "loading": {
+    "title": "Loading OCR model",
+    "progress": "Downloading model... {progress}%",
+    "cached": "Model loaded from cache"
+  },
+  "processing": {
+    "title": "Processing",
+    "page": "Page {current} of {total}",
+    "extracting": "Extracting text..."
+  },
+  "results": {
+    "title": "Processing complete",
+    "pages": "{count} pages extracted",
+    "download": {
+      "docx": "Download DOCX",
+      "pdf": "Download Searchable PDF"
+    },
+    "restart": "Process another document"
+  },
+  "errors": {
+    "unsupported_file": "Unsupported file type. Please upload a PDF, PNG, or JPG.",
+    "processing_failed": "Failed to process page {page}. Skipping.",
+    "model_load_failed": "Failed to load OCR model. Falling back to basic OCR."
+  }
+}
