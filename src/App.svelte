@@ -24,6 +24,7 @@
   let totalPages = $state(0);
   let currentResult = $state<OCRResult | null>(null);
   let modelLoadProgress = $state(0);
+  let errorMessage = $state('');
   let engine: OCREngine | null = null;
 
   onMount(async () => {
@@ -35,37 +36,61 @@
     }
   });
 
+  async function initEngine(tier: EngineTier | 'mock'): Promise<OCREngine> {
+    const eng = await createEngine(tier);
+    await eng.initialize((p) => { modelLoadProgress = p; });
+    return eng;
+  }
+
   async function handleFiles(files: File[]) {
     const file = files[0];
     if (!file) return;
 
-    appState = 'loading-model';
-    engine = await createEngine(engineTier);
-    await engine.initialize((p) => { modelLoadProgress = p; });
+    try {
+      appState = 'loading-model';
+      modelLoadProgress = 0;
 
-    appState = 'processing';
+      // Try the detected tier first; fall back to basic if it fails
+      try {
+        engine = await initEngine(engineTier);
+      } catch (err) {
+        console.warn(`Engine ${engineTier} failed, falling back to basic:`, err);
+        if (engineTier !== 'basic') {
+          engineTier = 'basic';
+          engine = await initEngine('basic');
+        } else {
+          throw err;
+        }
+      }
 
-    // Convert file to page images
-    if (file.type === 'application/pdf') {
-      const buffer = await file.arrayBuffer();
-      pages = await renderPdfPages(buffer, (current, total) => {
+      appState = 'processing';
+
+      // Convert file to page images
+      if (file.type === 'application/pdf') {
+        const buffer = await file.arrayBuffer();
+        pages = await renderPdfPages(buffer, (current, total) => {
+          currentPage = current;
+          totalPages = total;
+        });
+      } else {
+        pages = [await imageFileToPageImage(file, 1)];
+      }
+
+      totalPages = pages.length;
+      currentPage = 0;
+      ocrResults = [];
+
+      ocrResults = await processPipeline(engine, pages, (current, total, result) => {
         currentPage = current;
-        totalPages = total;
+        currentResult = result;
       });
-    } else {
-      pages = [await imageFileToPageImage(file, 1)];
+
+      appState = 'complete';
+    } catch (err) {
+      console.error('Processing failed:', err);
+      errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+      appState = 'error';
     }
-
-    totalPages = pages.length;
-    currentPage = 0;
-    ocrResults = [];
-
-    ocrResults = await processPipeline(engine, pages, (current, total, result) => {
-      currentPage = current;
-      currentResult = result;
-    });
-
-    appState = 'complete';
   }
 
   function handleRestart() {
@@ -76,6 +101,7 @@
     totalPages = 0;
     currentResult = null;
     modelLoadProgress = 0;
+    errorMessage = '';
   }
 </script>
 
@@ -102,6 +128,14 @@
         results={ocrResults}
         onrestart={handleRestart}
       />
+    {:else if appState === 'error'}
+      <div class="error-view">
+        <h2>{$_('errors.processing_failed', { values: { page: '' } })}</h2>
+        <p class="error-message">{errorMessage}</p>
+        <button class="restart-button" onclick={handleRestart}>
+          {$_('results.restart')}
+        </button>
+      </div>
     {/if}
   </main>
 
@@ -150,5 +184,38 @@
     align-items: center;
     justify-content: center;
     min-height: 300px;
+  }
+
+  .error-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 3rem;
+    text-align: center;
+  }
+
+  .error-view h2 {
+    color: #dc2626;
+    margin: 0;
+  }
+
+  .error-message {
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 0.875rem;
+    background: var(--bg-subtle);
+    padding: 1rem;
+    border-radius: 8px;
+    max-width: 600px;
+    word-break: break-word;
+  }
+
+  .restart-button {
+    padding: 0.6rem 1.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
   }
 </style>

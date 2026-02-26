@@ -17,7 +17,7 @@ export interface PageImage {
 
 export type EngineTier = 'premium' | 'standard' | 'basic';
 
-export type AppState = 'idle' | 'loading-model' | 'processing' | 'complete';
+export type AppState = 'idle' | 'loading-model' | 'processing' | 'complete' | 'error';
 
 export interface OCREngine {
   initialize(onProgress?: (progress: number) => void): Promise<void>;
