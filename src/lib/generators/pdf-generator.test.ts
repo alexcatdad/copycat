@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { PDFDocument } from 'pdf-lib';
 import { generateSearchablePdf } from './pdf-generator';
 import type { OCRResult, PageImage } from '../types';
 
@@ -46,5 +47,32 @@ describe('generateSearchablePdf', () => {
     ];
 
     await expect(generateSearchablePdf(malformedResults, mockPages)).resolves.toBeInstanceOf(Blob);
+  });
+
+  it('preserves page count when some regions are malformed', async () => {
+    const pages: PageImage[] = [
+      ...mockPages,
+      { ...mockPages[0], pageNumber: 2 },
+    ];
+    const mixedResults: OCRResult[] = [
+      {
+        text: 'Page 1',
+        regions: [
+          { text: 'Good', bbox: [10, 10, 60, 20] },
+        ],
+      },
+      {
+        text: 'Page 2',
+        regions: [
+          { text: 'Bad NaN', bbox: [10, 10, 60, Number.NaN] },
+          { text: 'Bad zero', bbox: [10, 10, 0, 20] },
+          { text: 'Good', bbox: [10, 40, 60, 20] },
+        ],
+      },
+    ];
+
+    const blob = await generateSearchablePdf(mixedResults, pages);
+    const pdf = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdf.getPageCount()).toBe(2);
   });
 });

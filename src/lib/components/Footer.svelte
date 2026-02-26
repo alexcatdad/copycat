@@ -1,9 +1,11 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n';
+
+  const appVersion = __APP_VERSION__;
 </script>
 
 <footer>
-  <p>{$_('app.privacy')}</p>
+  <p>{$_('app.privacy')} · v{appVersion}</p>
 </footer>
 
 <style>

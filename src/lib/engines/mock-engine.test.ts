@@ -66,6 +66,7 @@ describe('MockEngine', () => {
   it('validates supported mock profiles', () => {
     expect(isMockProfile('default')).toBe(true);
     expect(isMockProfile('premium')).toBe(true);
+    expect(isMockProfile('malformed')).toBe(true);
     expect(isMockProfile('unknown')).toBe(false);
   });
 });

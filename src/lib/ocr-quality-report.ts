@@ -30,7 +30,7 @@ interface RichSegment {
   font?: FontKey;
 }
 
-const PAGE_SIZE: readonly [number, number] = [612, 792];
+const PAGE_SIZE: [number, number] = [612, 792];
 const PAGE_MARGIN = 42;
 const BODY_FONT_SIZE = 10.5;
 const BODY_LINE_HEIGHT = 14;

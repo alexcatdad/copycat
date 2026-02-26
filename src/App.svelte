@@ -49,6 +49,7 @@
         || requestedProfile === 'premium'
         || requestedProfile === 'standard'
         || requestedProfile === 'basic'
+        || requestedProfile === 'malformed'
       ) {
         mockProfile = requestedProfile;
       }

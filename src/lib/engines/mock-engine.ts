@@ -25,7 +25,7 @@ export const OCR_COMPARISON_GROUND_TRUTH = OCR_COMPARISON_LINES.join('\n');
 
 export const OCR_COMPARISON_PROFILES = ['premium', 'standard', 'basic'] as const;
 export type OCRComparisonProfile = typeof OCR_COMPARISON_PROFILES[number];
-export type MockProfile = 'default' | OCRComparisonProfile;
+export type MockProfile = 'default' | OCRComparisonProfile | 'malformed';
 
 export interface MockEngineOptions {
   profile?: MockProfile;
@@ -74,11 +74,23 @@ const COMPARISON_RESULTS: Record<OCRComparisonProfile, OCRResult> = {
   ]),
 };
 
+const MALFORMED_RESULT: OCRResult = {
+  text: 'Result with malformed regions for PDF export resilience tests.',
+  regions: [
+    { text: 'Invalid NaN height', bbox: [10, 20, 200, Number.NaN] },
+    { text: 'Invalid zero width', bbox: [20, 60, 0, 22] },
+    { text: 'Invalid infinite y', bbox: [25, Number.POSITIVE_INFINITY, 160, 20] },
+    { text: 'Valid anchor text', bbox: [30, 95, 180, 24] },
+  ],
+};
+
 export function isMockProfile(value: string | null | undefined): value is MockProfile {
   if (!value) {
     return false;
   }
-  return value === 'default' || OCR_COMPARISON_PROFILES.includes(value as OCRComparisonProfile);
+  return value === 'default'
+    || value === 'malformed'
+    || OCR_COMPARISON_PROFILES.includes(value as OCRComparisonProfile);
 }
 
 export function getMockProfileResult(profile: OCRComparisonProfile): OCRResult {
@@ -101,7 +113,11 @@ export class MockEngine implements OCREngine {
     }
 
     if (config?.profile && config.profile !== 'default') {
-      this.responses = [COMPARISON_RESULTS[config.profile]];
+      if (config.profile === 'malformed') {
+        this.responses = [MALFORMED_RESULT];
+      } else {
+        this.responses = [COMPARISON_RESULTS[config.profile]];
+      }
       return;
     }
 
