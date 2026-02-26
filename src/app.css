@@ -1,9 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
 :root {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color: #111827;
-  background: white;
+  --font-display: 'Fraunces', 'Times New Roman', serif;
+  --font-body: 'Instrument Sans', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+
+  --bg-main: #f4eee6;
+  --surface-1: #fffaf3;
+  --surface-2: #fff4e6;
+  --border-color: #d9c8b4;
+
+  --ink-strong: #2d1f17;
+  --ink-muted: #6e5949;
+
+  --accent-copper: #b45b35;
+  --accent-copper-strong: #954626;
+  --accent-teal: #2e6b66;
+
+  color: var(--ink-strong);
+  background: var(--bg-main);
+  font-family: var(--font-body);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink-strong);
+  background: var(--bg-main);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent-teal), white 10%);
+  outline-offset: 2px;
 }

@@ -3,10 +3,13 @@ import { MockEngine, OCR_COMPARISON_GROUND_TRUTH, isMockProfile } from './mock-e
 import type { PageImage, OCRResult } from '../types';
 
 const mockPage: PageImage = {
-  dataUrl: 'data:image/png;base64,abc',
+  id: 'page-1',
+  src: 'blob:page-1',
+  blob: new Blob(['abc'], { type: 'image/png' }),
   width: 800,
   height: 1200,
   pageNumber: 1,
+  sourceKind: 'image',
 };
 
 describe('MockEngine', () => {
@@ -30,6 +33,9 @@ describe('MockEngine', () => {
     const customResult: OCRResult = {
       text: 'Custom text',
       regions: [{ text: 'Custom text', bbox: [10, 20, 200, 30] }],
+      source: 'ocr',
+      qualityScore: 0.9,
+      qualityFlags: [],
     };
     const engine = new MockEngine([customResult]);
     await engine.initialize();
@@ -39,8 +45,8 @@ describe('MockEngine', () => {
 
   it('cycles through responses for multiple pages', async () => {
     const results: OCRResult[] = [
-      { text: 'Page 1', regions: [{ text: 'Page 1', bbox: [0, 0, 100, 20] }] },
-      { text: 'Page 2', regions: [{ text: 'Page 2', bbox: [0, 0, 100, 20] }] },
+      { text: 'Page 1', regions: [{ text: 'Page 1', bbox: [0, 0, 100, 20] }], source: 'ocr', qualityScore: 0.9, qualityFlags: [] },
+      { text: 'Page 2', regions: [{ text: 'Page 2', bbox: [0, 0, 100, 20] }], source: 'ocr', qualityScore: 0.9, qualityFlags: [] },
     ];
     const engine = new MockEngine(results);
     await engine.initialize();

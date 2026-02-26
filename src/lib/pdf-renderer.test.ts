@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderPdfPages, imageFileToPageImage } from './pdf-renderer';
 
 // Mock pdfjs-dist since it needs a browser environment
@@ -18,20 +18,17 @@ vi.mock('pdfjs-dist', () => ({
 }));
 
 describe('imageFileToPageImage', () => {
+  beforeEach(() => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-image');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('converts a File to a PageImage', async () => {
     const file = new File(['fake-png'], 'test.png', { type: 'image/png' });
-
-    const mockDataUrl = 'data:image/png;base64,fake';
-    vi.spyOn(globalThis, 'FileReader').mockImplementation(function (this: any) {
-      this.onload = null;
-      this.onerror = null;
-      this.readAsDataURL = vi.fn().mockImplementation(() => {
-        setTimeout(() => {
-          this.onload?.({ target: { result: mockDataUrl } });
-        }, 0);
-      });
-      return this;
-    } as any);
 
     vi.spyOn(globalThis, 'Image').mockImplementation(function (this: any) {
       this.onload = null;
@@ -51,17 +48,26 @@ describe('imageFileToPageImage', () => {
     } as any);
 
     const result = await imageFileToPageImage(file, 1);
-    expect(result.dataUrl).toBe(mockDataUrl);
+    expect(result.src).toBe('blob:mock-image');
     expect(result.pageNumber).toBe(1);
+    expect(result.sourceKind).toBe('image');
   });
 });
 
 describe('renderPdfPages', () => {
+  beforeEach(() => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-pdf');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('extracts pages from a PDF ArrayBuffer', async () => {
     vi.spyOn(globalThis, 'document', 'get').mockReturnValue({
       createElement: vi.fn().mockReturnValue({
         getContext: vi.fn().mockReturnValue({}),
-        toDataURL: vi.fn().mockReturnValue('data:image/png;base64,mock'),
+        toBlob: vi.fn().mockImplementation((cb: (blob: Blob) => void) => cb(new Blob(['mock'], { type: 'image/png' }))),
         width: 0,
         height: 0,
       }),
@@ -72,5 +78,6 @@ describe('renderPdfPages', () => {
     expect(pages).toHaveLength(2);
     expect(pages[0].pageNumber).toBe(1);
     expect(pages[1].pageNumber).toBe(2);
+    expect(pages[0].src).toBe('blob:mock-pdf');
   });
 });

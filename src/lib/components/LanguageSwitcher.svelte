@@ -30,7 +30,8 @@
   .lang-switcher {
     display: flex;
     gap: 2px;
-    background: var(--bg-subtle, #e5e7eb);
+    background: color-mix(in oklab, var(--surface-2), white 10%);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 2px;
   }
@@ -40,7 +41,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: var(--text-muted, #6b7280);
+    color: var(--ink-muted);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
@@ -48,8 +49,8 @@
   }
 
   button.active {
-    background: white;
-    color: var(--text-primary, #111827);
+    background: var(--surface-1);
+    color: var(--ink-strong);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
 </style>

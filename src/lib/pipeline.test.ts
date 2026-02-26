@@ -3,18 +3,40 @@ import { processPipeline } from './pipeline';
 import { MockEngine } from './engines/mock-engine';
 import type { PageImage, OCRResult } from './types';
 
+function makePage(pageNumber: number): PageImage {
+  return {
+    id: `p-${pageNumber}`,
+    src: `blob:p-${pageNumber}`,
+    blob: new Blob([`p${pageNumber}`], { type: 'image/png' }),
+    width: 800,
+    height: 1200,
+    pageNumber,
+    sourceKind: 'image',
+  };
+}
+
+function makeResult(text: string): OCRResult {
+  return {
+    text,
+    regions: [{ text, bbox: [0, 0, 100, 20] }],
+    source: 'ocr',
+    qualityScore: 0.9,
+    qualityFlags: [],
+  };
+}
+
 const mockPages: PageImage[] = [
-  { dataUrl: 'data:image/png;base64,p1', width: 800, height: 1200, pageNumber: 1 },
-  { dataUrl: 'data:image/png;base64,p2', width: 800, height: 1200, pageNumber: 2 },
-  { dataUrl: 'data:image/png;base64,p3', width: 800, height: 1200, pageNumber: 3 },
+  makePage(1),
+  makePage(2),
+  makePage(3),
 ];
 
 describe('processPipeline', () => {
   it('processes all pages sequentially and returns results', async () => {
     const results: OCRResult[] = [
-      { text: 'Page 1 text', regions: [{ text: 'Page 1 text', bbox: [0, 0, 100, 20] }] },
-      { text: 'Page 2 text', regions: [{ text: 'Page 2 text', bbox: [0, 0, 100, 20] }] },
-      { text: 'Page 3 text', regions: [{ text: 'Page 3 text', bbox: [0, 0, 100, 20] }] },
+      makeResult('Page 1 text'),
+      makeResult('Page 2 text'),
+      makeResult('Page 3 text'),
     ];
     const engine = new MockEngine(results);
     await engine.initialize();
@@ -42,5 +64,28 @@ describe('processPipeline', () => {
 
     const output = await processPipeline(engine, []);
     expect(output).toEqual([]);
+  });
+
+  it('supports selective page processing and merge updates', async () => {
+    const engine = new MockEngine([
+      makeResult('Retry page 2'),
+      makeResult('Retry page 3'),
+    ]);
+    await engine.initialize();
+
+    const existing: Array<OCRResult | null> = [
+      makeResult('Page 1'),
+      makeResult('Page 2'),
+      makeResult('Page 3'),
+    ];
+
+    const output = await processPipeline(engine, mockPages, {
+      pageIndices: [1, 2],
+      existingResults: existing,
+    });
+
+    expect(output[0]?.text).toBe('Page 1');
+    expect(output[1]?.text).toBe('Retry page 2');
+    expect(output[2]?.text).toBe('Retry page 3');
   });
 });

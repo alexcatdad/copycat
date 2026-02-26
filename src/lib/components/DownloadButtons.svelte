@@ -2,14 +2,25 @@
   import { _ } from 'svelte-i18n';
   import { generateDocx } from '../generators/docx-generator';
   import { generateSearchablePdf } from '../generators/pdf-generator';
-  import type { OCRResult, PageImage } from '../types';
+  import type { OCRResult, PageImage, PdfPageDescriptor } from '../types';
 
   interface Props {
     results: OCRResult[];
     pages: PageImage[];
+    pageDescriptors?: PdfPageDescriptor[];
+    sourcePdfBytes?: Uint8Array;
+    onpdfgenerated?: (blob: Blob) => void;
+    ondocxgenerated?: (blob: Blob) => void;
   }
 
-  let { results, pages }: Props = $props();
+  let {
+    results,
+    pages,
+    pageDescriptors = [],
+    sourcePdfBytes,
+    onpdfgenerated,
+    ondocxgenerated,
+  }: Props = $props();
   let generatingDocx = $state(false);
   let generatingPdf = $state(false);
 
@@ -17,6 +28,7 @@
     generatingDocx = true;
     try {
       const blob = await generateDocx(results, pages);
+      ondocxgenerated?.(blob);
       downloadBlob(blob, 'copycat-output.docx');
     } finally {
       generatingDocx = false;
@@ -26,7 +38,11 @@
   async function downloadPdf() {
     generatingPdf = true;
     try {
-      const blob = await generateSearchablePdf(results, pages);
+      const blob = await generateSearchablePdf(results, pages, {
+        originalPdfBytes: sourcePdfBytes,
+        pageDescriptors,
+      });
+      onpdfgenerated?.(blob);
       downloadBlob(blob, 'copycat-output.pdf');
     } finally {
       generatingPdf = false;
@@ -55,23 +71,25 @@
 <style>
   .download-buttons {
     display: flex;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
   button {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: 8px;
-    background: var(--accent, #3b82f6);
-    color: white;
+    padding: 0.65rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--ink-strong);
     font-weight: 600;
-    font-size: 1rem;
+    font-size: 0.9rem;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: transform 0.2s ease, border-color 0.2s ease;
   }
 
   button:hover:not(:disabled) {
-    background: var(--accent-hover, #2563eb);
+    border-color: var(--accent-copper);
+    transform: translateY(-1px);
   }
 
   button:disabled {

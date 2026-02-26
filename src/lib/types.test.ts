@@ -9,6 +9,9 @@ describe('Core types', () => {
         { text: 'Hello', bbox: [0, 0, 50, 20] },
         { text: 'world', bbox: [55, 0, 110, 20] },
       ],
+      source: 'ocr',
+      qualityScore: 0.9,
+      qualityFlags: [],
     };
     expect(result.text).toBe('Hello world');
     expect(result.regions).toHaveLength(2);
@@ -17,10 +20,13 @@ describe('Core types', () => {
 
   it('PageImage holds image data and dimensions', () => {
     const page: PageImage = {
-      dataUrl: 'data:image/png;base64,abc',
+      id: 'page-1',
+      src: 'blob:page-1',
+      blob: new Blob(['abc'], { type: 'image/png' }),
       width: 800,
       height: 1200,
       pageNumber: 1,
+      sourceKind: 'image',
     };
     expect(page.width).toBe(800);
     expect(page.pageNumber).toBe(1);

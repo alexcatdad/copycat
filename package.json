@@ -19,6 +19,7 @@
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "docx": "^9.6.0",
+    "idb": "^8.0.3",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
     "svelte-i18n": "^4.0.1",
@@ -30,6 +31,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.3.1",
     "@tsconfig/svelte": "^5.0.8",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^28.1.0",
     "svelte": "^5.53.5",
     "svelte-check": "^4.4.3",

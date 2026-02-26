@@ -1,12 +1,23 @@
 import type { OCREngine, OCRRegion, OCRResult, PageImage } from '../types';
+import { inferQuality } from '../quality-score';
 
-const DEFAULT_RESULT: OCRResult = {
+function withQuality(result: Omit<OCRResult, 'source' | 'qualityScore' | 'qualityFlags'>): OCRResult {
+  const quality = inferQuality(result.text, 'ocr', 0.9);
+  return {
+    ...result,
+    source: 'ocr',
+    qualityScore: quality.qualityScore,
+    qualityFlags: quality.qualityFlags,
+  };
+}
+
+const DEFAULT_RESULT: OCRResult = withQuality({
   text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
   regions: [
     { text: 'Lorem ipsum dolor sit amet,', bbox: [50, 50, 400, 30] },
     { text: 'consectetur adipiscing elit.', bbox: [50, 90, 380, 30] },
   ],
-};
+});
 
 const OCR_COMPARISON_LINES = [
   'ACME Supplies, Inc.',
@@ -40,10 +51,10 @@ function createLineRegions(lines: readonly string[]): OCRRegion[] {
 }
 
 function buildResult(lines: readonly string[]): OCRResult {
-  return {
+  return withQuality({
     text: lines.join('\n'),
     regions: createLineRegions(lines),
-  };
+  });
 }
 
 const COMPARISON_RESULTS: Record<OCRComparisonProfile, OCRResult> = {
@@ -74,7 +85,7 @@ const COMPARISON_RESULTS: Record<OCRComparisonProfile, OCRResult> = {
   ]),
 };
 
-const MALFORMED_RESULT: OCRResult = {
+const MALFORMED_RESULT: OCRResult = withQuality({
   text: 'Result with malformed regions for PDF export resilience tests.',
   regions: [
     { text: 'Invalid NaN height', bbox: [10, 20, 200, Number.NaN] },
@@ -82,7 +93,7 @@ const MALFORMED_RESULT: OCRResult = {
     { text: 'Invalid infinite y', bbox: [25, Number.POSITIVE_INFINITY, 160, 20] },
     { text: 'Valid anchor text', bbox: [30, 95, 180, 24] },
   ],
-};
+});
 
 export function isMockProfile(value: string | null | undefined): value is MockProfile {
   if (!value) {

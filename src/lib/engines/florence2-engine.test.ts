@@ -47,10 +47,13 @@ vi.mock('@huggingface/transformers', () => ({
 }));
 
 const mockPage: PageImage = {
-  dataUrl: 'data:image/png;base64,abc',
+  id: 'page-1',
+  src: 'blob:page-1',
+  blob: new Blob(['abc'], { type: 'image/png' }),
   width: 800,
   height: 1200,
   pageNumber: 1,
+  sourceKind: 'image',
 };
 
 describe('Florence2Engine', () => {
@@ -68,6 +71,8 @@ describe('Florence2Engine', () => {
     expect(result.text).toBeTruthy();
     expect(result.regions).toBeDefined();
     expect(Array.isArray(result.regions)).toBe(true);
+    expect(result.source).toBe('ocr');
+    expect(result.qualityScore).toBeGreaterThan(0);
   });
 
   it('disposes without error', async () => {

@@ -36,23 +36,23 @@
   button {
     min-width: 36px;
     height: 36px;
-    border: 1px solid var(--border-color, #d1d5db);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: white;
-    color: var(--text-primary, #374151);
+    background: var(--surface-1);
+    color: var(--ink-strong);
     cursor: pointer;
     font-size: 0.875rem;
     transition: all 0.15s;
   }
 
   button:hover:not(:disabled) {
-    background: var(--bg-subtle, #f3f4f6);
+    background: color-mix(in oklab, var(--surface-2), white 14%);
   }
 
   button.active {
-    background: var(--accent, #3b82f6);
+    background: var(--accent-teal);
     color: white;
-    border-color: var(--accent, #3b82f6);
+    border-color: var(--accent-teal);
   }
 
   button:disabled {

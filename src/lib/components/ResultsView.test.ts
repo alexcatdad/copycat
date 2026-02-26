@@ -2,15 +2,31 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import ResultsView from './ResultsView.svelte';
 
+function makePage(pageNumber: number) {
+  return {
+    id: `p-${pageNumber}`,
+    src: `blob:p-${pageNumber}`,
+    blob: new Blob([`p-${pageNumber}`], { type: 'image/png' }),
+    width: 800,
+    height: 1200,
+    pageNumber,
+    sourceKind: 'image' as const,
+  };
+}
+
+function makeResult(text: string) {
+  return {
+    text,
+    regions: [{ text, bbox: [0, 0, 100, 20] as [number, number, number, number] }],
+    source: 'ocr' as const,
+    qualityScore: 0.9,
+    qualityFlags: [],
+  };
+}
+
 const mockProps = {
-  pages: [
-    { dataUrl: 'data:image/png;base64,p1', width: 800, height: 1200, pageNumber: 1 },
-    { dataUrl: 'data:image/png;base64,p2', width: 800, height: 1200, pageNumber: 2 },
-  ],
-  results: [
-    { text: 'Page 1 text', regions: [{ text: 'Page 1 text', bbox: [0, 0, 100, 20] as [number, number, number, number] }] },
-    { text: 'Page 2 text', regions: [{ text: 'Page 2 text', bbox: [0, 0, 100, 20] as [number, number, number, number] }] },
-  ],
+  pages: [makePage(1), makePage(2)],
+  results: [makeResult('Page 1 text'), makeResult('Page 2 text')],
   onrestart: vi.fn(),
 };
 

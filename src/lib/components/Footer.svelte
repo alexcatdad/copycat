@@ -12,8 +12,9 @@
   footer {
     padding: 1rem 2rem;
     text-align: center;
-    border-top: 1px solid var(--border-color, #e5e7eb);
-    color: var(--text-muted, #9ca3af);
+    border-top: 1px solid var(--border-color);
+    color: var(--ink-muted);
     font-size: 0.8rem;
+    background: color-mix(in oklab, var(--surface-2), white 15%);
   }
 </style>

@@ -3,8 +3,8 @@ import { generateDocx } from './docx-generator';
 import type { OCRResult, PageImage } from '../types';
 
 const mockPages: PageImage[] = [
-  { dataUrl: 'data:image/png;base64,p1', width: 800, height: 1200, pageNumber: 1 },
-  { dataUrl: 'data:image/png;base64,p2', width: 800, height: 1200, pageNumber: 2 },
+  { id: 'p1', src: 'blob:p1', blob: new Blob(['p1'], { type: 'image/png' }), width: 800, height: 1200, pageNumber: 1, sourceKind: 'image' },
+  { id: 'p2', src: 'blob:p2', blob: new Blob(['p2'], { type: 'image/png' }), width: 800, height: 1200, pageNumber: 2, sourceKind: 'image' },
 ];
 
 const mockResults: OCRResult[] = [
@@ -14,6 +14,9 @@ const mockResults: OCRResult[] = [
       { text: 'Hello', bbox: [50, 100, 200, 30] },
       { text: 'World', bbox: [50, 150, 200, 30] },
     ],
+    source: 'ocr',
+    qualityScore: 0.91,
+    qualityFlags: [],
   },
   {
     text: 'Page two content',
@@ -21,6 +24,9 @@ const mockResults: OCRResult[] = [
       { text: 'Page two', bbox: [50, 100, 250, 30] },
       { text: 'content', bbox: [50, 150, 200, 30] },
     ],
+    source: 'ocr',
+    qualityScore: 0.88,
+    qualityFlags: [],
   },
 ];
 

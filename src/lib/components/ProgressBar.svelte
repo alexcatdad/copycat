@@ -32,27 +32,27 @@
 
   .progress-label {
     font-size: 0.875rem;
-    color: var(--text-muted, #6b7280);
+    color: var(--ink-muted);
     margin-bottom: 0.5rem;
   }
 
   .progress-bar {
     height: 8px;
-    background: var(--bg-subtle, #e5e7eb);
+    background: color-mix(in oklab, var(--surface-2), #ffffff 20%);
     border-radius: 4px;
     overflow: hidden;
   }
 
   .progress-fill {
     height: 100%;
-    background: var(--accent, #3b82f6);
+    background: linear-gradient(90deg, var(--accent-copper), var(--accent-teal));
     border-radius: 4px;
     transition: width 0.3s ease;
   }
 
   .progress-percent {
     font-size: 0.75rem;
-    color: var(--text-muted, #6b7280);
+    color: var(--ink-muted);
     text-align: right;
     margin-top: 0.25rem;
   }

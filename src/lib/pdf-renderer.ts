@@ -1,12 +1,43 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import type { PageImage } from './types';
+import type { PageImage, PageSourceKind } from './types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
 
-const RENDER_SCALE = 3; // Render at 3x for better OCR quality on small text and symbols
+const RENDER_SCALE = 3;
+
+function createPageImage(
+  blob: Blob,
+  width: number,
+  height: number,
+  pageNumber: number,
+  sourceKind: PageSourceKind,
+): PageImage {
+  const pageId = globalThis.crypto?.randomUUID?.() ?? `page-${pageNumber}-${Date.now()}-${Math.random()}`;
+  return {
+    id: `page-${pageNumber}-${pageId}`,
+    src: URL.createObjectURL(blob),
+    blob,
+    width,
+    height,
+    pageNumber,
+    sourceKind,
+  };
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Failed to create page preview blob from canvas.'));
+        return;
+      }
+      resolve(blob);
+    }, 'image/png');
+  });
+}
 
 export async function renderPdfPages(
   pdfBuffer: ArrayBuffer,
@@ -21,17 +52,15 @@ export async function renderPdfPages(
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Unable to create canvas rendering context.');
+    }
 
     await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+    const blob = await canvasToBlob(canvas);
 
-    pages.push({
-      dataUrl: canvas.toDataURL('image/png'),
-      width: viewport.width,
-      height: viewport.height,
-      pageNumber: i,
-    });
-
+    pages.push(createPageImage(blob, viewport.width, viewport.height, i, 'scanned'));
     onProgress?.(i, pdf.numPages);
   }
 
@@ -39,26 +68,32 @@ export async function renderPdfPages(
 }
 
 export async function imageFileToPageImage(file: File, pageNumber: number): Promise<PageImage> {
-  const dataUrl = await fileToDataUrl(file);
-  const { width, height } = await getImageDimensions(dataUrl);
-
-  return { dataUrl, width, height, pageNumber };
+  const dims = await getImageDimensions(file);
+  const sourceKind: PageSourceKind = 'image';
+  return createPageImage(file, dims.width, dims.height, pageNumber, sourceKind);
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target!.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+function getImageDimensions(file: Blob): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = reject;
-    img.src = dataUrl;
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to read image dimensions.'));
+    };
+
+    img.src = url;
   });
+}
+
+export function revokePageUrls(pages: PageImage[]): void {
+  for (const page of pages) {
+    URL.revokeObjectURL(page.src);
+  }
 }

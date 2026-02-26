@@ -29,7 +29,9 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem 2rem;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    border-bottom: 1px solid color-mix(in oklab, var(--border-color), white 15%);
+    background: color-mix(in oklab, var(--surface-2), white 18%);
+    backdrop-filter: blur(6px);
   }
 
   .brand {
@@ -39,41 +41,58 @@
   }
 
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.65rem;
     font-weight: 700;
     margin: 0;
+    color: var(--ink-strong);
   }
 
   .subtitle {
-    font-size: 0.875rem;
-    color: var(--text-muted, #6b7280);
+    font-size: 0.86rem;
+    color: var(--ink-muted);
   }
 
   .controls {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
   .tier-badge {
     font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.2rem 0.6rem;
-    border-radius: 9999px;
+    font-weight: 700;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    letter-spacing: 0.02em;
   }
 
   .tier-premium {
-    background: #dcfce7;
-    color: #166534;
+    background: color-mix(in oklab, var(--accent-teal), white 72%);
+    color: color-mix(in oklab, var(--accent-teal), black 12%);
   }
 
   .tier-standard {
-    background: #dbeafe;
-    color: #1e40af;
+    background: color-mix(in oklab, var(--accent-copper), white 78%);
+    color: color-mix(in oklab, var(--accent-copper), black 10%);
   }
 
   .tier-basic {
-    background: #f3f4f6;
-    color: #374151;
+    background: color-mix(in oklab, var(--ink-muted), white 84%);
+    color: var(--ink-muted);
+  }
+
+  @media (max-width: 700px) {
+    header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .brand {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.15rem;
+    }
   }
 </style>

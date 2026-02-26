@@ -5,6 +5,7 @@ import {
   RawImage,
 } from '@huggingface/transformers';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
+import { inferQuality } from '../quality-score';
 
 const MODEL_ID = 'onnx-community/Florence-2-base-ft';
 
@@ -28,7 +29,6 @@ export class Florence2Engine implements OCREngine {
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
     onProgress?.(0);
 
-    // Prefer q8 for OCR fidelity, then fall back to q4 if runtime/memory is constrained.
     const dtypeCandidates: FlorenceDtypeConfig[] = this.device === 'webgpu'
       ? [
         { embed_tokens: 'fp16', vision_encoder: 'fp16', encoder_model: 'q8', decoder_model_merged: 'q8' },
@@ -71,7 +71,7 @@ export class Florence2Engine implements OCREngine {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
-    const rawImage = await RawImage.fromURL(image.dataUrl);
+    const rawImage = await RawImage.fromURL(image.src);
     const visionInputs = await this.processor(rawImage);
     const task = '<OCR_WITH_REGION>';
     const prompts = this.processor.construct_prompts(task);
@@ -105,7 +105,14 @@ export class Florence2Engine implements OCREngine {
   private parseFlorence2Result(result: any): OCRResult {
     const ocrData = result['<OCR_WITH_REGION>'];
     if (!ocrData || !ocrData.labels) {
-      return { text: '', regions: [] };
+      const quality = inferQuality('', 'ocr');
+      return {
+        text: '',
+        regions: [],
+        source: 'ocr',
+        qualityScore: quality.qualityScore,
+        qualityFlags: quality.qualityFlags,
+      };
     }
 
     const regions: OCRRegion[] = [];
@@ -113,7 +120,6 @@ export class Florence2Engine implements OCREngine {
     const quadBoxes: number[] = ocrData.quad_boxes;
 
     for (let i = 0; i < labels.length; i++) {
-      // quad_boxes has 8 values per region (4 x,y pairs for corners)
       const offset = i * 8;
       if (offset + 7 >= quadBoxes.length) break;
 
@@ -134,6 +140,13 @@ export class Florence2Engine implements OCREngine {
     }
 
     const text = labels.join(' ');
-    return { text, regions };
+    const quality = inferQuality(text, 'ocr');
+    return {
+      text,
+      regions,
+      source: 'ocr',
+      qualityScore: quality.qualityScore,
+      qualityFlags: quality.qualityFlags,
+    };
   }
 }

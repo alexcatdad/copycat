@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import 'fake-indexeddb/auto';
 import { addMessages, init } from 'svelte-i18n';
 import en from './lib/i18n/en.json';
 

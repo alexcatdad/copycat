@@ -1,5 +1,6 @@
 import { createWorker } from 'tesseract.js';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
+import { inferQuality } from '../quality-score';
 
 const DEFAULT_TESSERACT_PARAMS = {
   user_defined_dpi: '300',
@@ -25,7 +26,7 @@ export class TesseractEngine implements OCREngine {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
-    const { data } = await this.worker.recognize(image.dataUrl, {
+    const { data } = await this.worker.recognize(image.src, {
       rotateAuto: true,
     });
 
@@ -39,9 +40,14 @@ export class TesseractEngine implements OCREngine {
       ] as [number, number, number, number],
     }));
 
+    const quality = inferQuality(data.text, 'ocr', typeof data.confidence === 'number' ? data.confidence / 100 : undefined);
+
     return {
       text: data.text,
       regions,
+      source: 'ocr',
+      qualityScore: quality.qualityScore,
+      qualityFlags: quality.qualityFlags,
     };
   }
 

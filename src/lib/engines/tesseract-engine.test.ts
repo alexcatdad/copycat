@@ -9,6 +9,7 @@ const { mockSetParameters, mockRecognize } = vi.hoisted(() => ({
   mockRecognize: vi.fn().mockResolvedValue({
     data: {
       text: 'Hello World',
+      confidence: 92,
       words: [
         { text: 'Hello', bbox: { x0: 10, y0: 20, x1: 60, y1: 40 } },
         { text: 'World', bbox: { x0: 70, y0: 20, x1: 120, y1: 40 } },
@@ -27,10 +28,13 @@ vi.mock('tesseract.js', () => ({
 }));
 
 const mockPage: PageImage = {
-  dataUrl: 'data:image/png;base64,abc',
+  id: 'page-1',
+  src: 'blob:page-1',
+  blob: new Blob(['abc'], { type: 'image/png' }),
   width: 800,
   height: 1200,
   pageNumber: 1,
+  sourceKind: 'image',
 };
 
 describe('TesseractEngine', () => {
@@ -49,11 +53,13 @@ describe('TesseractEngine', () => {
     const engine = new TesseractEngine();
     await engine.initialize();
     const result = await engine.processPage(mockPage);
-    expect(mockRecognize).toHaveBeenCalledWith(mockPage.dataUrl, { rotateAuto: true });
+    expect(mockRecognize).toHaveBeenCalledWith(mockPage.src, { rotateAuto: true });
     expect(result.text).toBe('Hello World');
     expect(result.regions).toHaveLength(2);
     expect(result.regions[0].text).toBe('Hello');
     expect(result.regions[0].bbox).toEqual([10, 20, 50, 20]); // [x, y, w, h]
+    expect(result.source).toBe('ocr');
+    expect(result.qualityScore).toBeGreaterThan(0);
   });
 
   it('disposes the worker', async () => {

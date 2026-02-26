@@ -43,7 +43,7 @@ async function createDemoSourcePdf(text: string): Promise<Buffer> {
 }
 
 async function uploadPdfAndCollectText(page: Page, profile: OCRComparisonProfile, pdfBuffer: Buffer): Promise<string> {
-  await page.goto(`/?engine=mock&mockProfile=${profile}`);
+  await page.goto(`/?engine=mock&mockProfile=${profile}&forceOcr=1`);
   await expect(page.locator('.upload-zone')).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({
