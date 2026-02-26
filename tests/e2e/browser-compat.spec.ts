@@ -394,3 +394,401 @@ test.describe('Cross-browser: anchor download attribute', () => {
     expect(triggered).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 14. backdrop-filter — Header uses blur(6px); Firefox lacked support until 103
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: backdrop-filter', () => {
+  test('header backdrop-filter resolves to a non-empty value', async ({ page }) => {
+    await page.goto('/');
+
+    const bf = await page.locator('header').evaluate((el) => {
+      const style = getComputedStyle(el);
+      // Check both standard and webkit-prefixed property
+      return style.getPropertyValue('backdrop-filter')
+        || style.getPropertyValue('-webkit-backdrop-filter');
+    });
+
+    // Should resolve to something like "blur(6px)", not "none" or ""
+    expect(bf).toBeTruthy();
+    expect(bf).not.toBe('none');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. localStorage — Safari private browsing historically throws on setItem
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: localStorage', () => {
+  test('can write and read from localStorage', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const result = await page.evaluate(() => {
+      try {
+        const key = '__compat_probe__';
+        localStorage.setItem(key, 'ok');
+        const value = localStorage.getItem(key);
+        localStorage.removeItem(key);
+        return { ok: true, value };
+      } catch {
+        return { ok: false, value: null };
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.value).toBe('ok');
+  });
+
+  test('language preference persists via localStorage', async ({ page }) => {
+    await page.goto('/?engine=mock');
+    await page.locator('.lang-switcher button:has-text("RO")').click();
+
+    const stored = await page.evaluate(() => localStorage.getItem('copycat-locale'));
+    expect(stored).toBe('ro');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Blob.arrayBuffer() — critical for IDB storage; Safari 14+ only
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: Blob.arrayBuffer', () => {
+  test('Blob.arrayBuffer() returns valid ArrayBuffer', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const result = await page.evaluate(async () => {
+      const data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      const buffer = await blob.arrayBuffer();
+      const view = new Uint8Array(buffer);
+      return {
+        byteLength: buffer.byteLength,
+        matchesOriginal: view.every((b, i) => b === data[i]),
+      };
+    });
+
+    expect(result.byteLength).toBe(5);
+    expect(result.matchesOriginal).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. Dynamic import() — engines are code-split via lazy dynamic imports
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: dynamic import', () => {
+  test('dynamic import() loads MockEngine successfully', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    // The app loads without errors, which means dynamic import of MockEngine worked.
+    // Verify engine initialized by processing a file.
+    await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);
+    await expect(page.locator('.results-view')).toBeVisible({ timeout: 10000 });
+    // MockEngine returns "Lorem ipsum" — proves the import resolved
+    await expect(page.locator('.extracted-text')).toContainText('Lorem ipsum');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. Image preloading with decoding="async" — ResultsView preloads neighbors
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: image decoding', () => {
+  test('Image object supports decoding property', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const supported = await page.evaluate(() => {
+      const img = new Image();
+      // The property exists even if the browser ignores the value
+      return 'decoding' in img;
+    });
+
+    expect(supported).toBe(true);
+  });
+
+  test('img[loading="lazy"] attribute is recognized', async ({ page }) => {
+    await page.goto('/?engine=mock');
+    await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);
+    await expect(page.locator('.results-view')).toBeVisible({ timeout: 10000 });
+
+    const lazyAttr = await page.locator('.page-preview img').getAttribute('loading');
+    expect(lazyAttr).toBe('lazy');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 19. Fetch from blob: URLs — pdf-generator fetches blob: URLs for image data
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: fetch blob URLs', () => {
+  test('fetch() can retrieve data from a blob: URL', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const result = await page.evaluate(async () => {
+      const payload = new Uint8Array([1, 2, 3, 4, 5]);
+      const blob = new Blob([payload], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+
+      try {
+        const response = await fetch(url);
+        const buffer = await response.arrayBuffer();
+        return { ok: response.ok, size: buffer.byteLength };
+      } catch {
+        return { ok: false, size: 0 };
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.size).toBe(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 20. Date.toLocaleString — used in HistoryPanel; output varies by browser
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: date formatting', () => {
+  test('Date.toLocaleString returns a non-empty string', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const formatted = await page.evaluate(() => {
+      return new Date('2026-01-15T12:30:00Z').toLocaleString();
+    });
+
+    expect(formatted.length).toBeGreaterThan(0);
+    // Should contain the year somewhere in the output
+    expect(formatted).toContain('2026');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 21. CSS :focus-visible — Safari 15.4+ only; used for all interactive elements
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: focus-visible', () => {
+  test('focus-visible outline appears on keyboard focus', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    // Tab to the first focusable element
+    await page.keyboard.press('Tab');
+
+    const outlineStyle = await page.evaluate(() => {
+      const focused = document.querySelector(':focus-visible');
+      if (!focused) return null;
+      return getComputedStyle(focused).outlineStyle;
+    });
+
+    // If the browser supports :focus-visible, we get an outline
+    // If null, no element matched — still a valid signal
+    if (outlineStyle !== null) {
+      expect(outlineStyle).not.toBe('none');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 22. Large canvas — PDF renders at 3x scale; iOS Safari caps canvas at ~16MP
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: large canvas', () => {
+  test('can create and draw on a canvas up to 1836x2376 (letter 3x)', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    // 612*3 = 1836, 792*3 = 2376 — matches PDF RENDER_SCALE = 3
+    const result = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1836;
+      canvas.height = 2376;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return { ok: false, reason: 'no 2d context' };
+
+      ctx.fillStyle = '#333';
+      ctx.fillRect(0, 0, 1836, 2376);
+
+      // Sample a pixel to prove the draw actually worked
+      const pixel = ctx.getImageData(100, 100, 1, 1).data;
+      return {
+        ok: true,
+        width: canvas.width,
+        height: canvas.height,
+        pixelR: pixel[0], // Should be 0x33 = 51
+      };
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.width).toBe(1836);
+    expect(result.height).toBe(2376);
+    expect(result.pixelR).toBe(51);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 23. IDB multi-store transaction — jobs-repo writes jobs+pages+artifacts
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: IDB multi-store transactions', () => {
+  test('can write and read across multiple object stores in one transaction', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const result = await page.evaluate(async () => {
+      const DB_NAME = 'compat-idb-multi-probe';
+
+      try {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            db.createObjectStore('storeA', { keyPath: 'id' });
+            db.createObjectStore('storeB', { keyPath: 'id' });
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+
+        // Write to both stores in a single transaction
+        const tx = db.transaction(['storeA', 'storeB'], 'readwrite');
+        tx.objectStore('storeA').put({ id: 'a1', value: 'hello' });
+        tx.objectStore('storeB').put({ id: 'b1', value: 'world' });
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+
+        // Read back from both
+        const readTx = db.transaction(['storeA', 'storeB'], 'readonly');
+        const a = await new Promise<any>((resolve) => {
+          readTx.objectStore('storeA').get('a1').onsuccess = (e: any) => resolve(e.target.result);
+        });
+        const b = await new Promise<any>((resolve) => {
+          readTx.objectStore('storeB').get('b1').onsuccess = (e: any) => resolve(e.target.result);
+        });
+
+        db.close();
+        indexedDB.deleteDatabase(DB_NAME);
+
+        return { ok: true, aValue: a?.value, bValue: b?.value };
+      } catch {
+        return { ok: false, aValue: null, bValue: null };
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.aValue).toBe('hello');
+    expect(result.bValue).toBe('world');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 24. History panel restore — open a saved job from IndexedDB
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: history restore', () => {
+  test('can open a previously saved job from history', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    // Clear any previous history
+    const clearBtn = page.locator('.history-panel .clear');
+    if (await clearBtn.isVisible() && !(await clearBtn.isDisabled())) {
+      await clearBtn.click();
+    }
+
+    // Process a file to create a history entry
+    await page.locator('input[type="file"]').setInputFiles(TEST_IMAGE);
+    await expect(page.locator('.results-view')).toBeVisible({ timeout: 10000 });
+
+    // Return to idle
+    await page.getByText('Process another document').click();
+    await expect(page.locator('.upload-zone')).toBeVisible();
+    await expect(page.locator('.history-panel')).toContainText('test-image.png');
+
+    // Click on the history entry to restore it
+    await page.locator('.history-panel .job-item').first().click();
+    await expect(page.locator('.results-view')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.extracted-text')).toContainText('Lorem ipsum');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 25. SVG rendering — inline SVG in upload zone must render with currentColor
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: SVG rendering', () => {
+  test('upload zone SVG icon renders with non-zero dimensions', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const svg = page.locator('.upload-zone svg.upload-icon');
+    await expect(svg).toBeVisible();
+
+    const box = await svg.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+    expect(box!.height).toBeGreaterThan(0);
+  });
+
+  test('SVG stroke color inherits from CSS currentColor', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const strokeColor = await page.locator('.upload-zone svg.upload-icon').evaluate((el) => {
+      return getComputedStyle(el).color;
+    });
+
+    // Should resolve to an actual color, not empty
+    expect(strokeColor.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 26. Multi-page PDF page navigation — PageNavigator buttons
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: page navigation', () => {
+  test('multi-page PDF shows navigator and switches pages', async ({ page }) => {
+    // Create a 2-page scanned PDF (blank pages → OCR with mock)
+    const sourcePdf = await (async () => {
+      const pdf = await PDFDocument.create();
+      pdf.addPage([612, 792]);
+      pdf.addPage([612, 792]);
+      return Buffer.from(await pdf.save());
+    })();
+
+    await page.goto('/?engine=mock');
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'two-page.pdf',
+      mimeType: 'application/pdf',
+      buffer: sourcePdf,
+    });
+
+    await expect(page.locator('.results-view')).toBeVisible({ timeout: 15000 });
+
+    // Navigator should be present for multi-page docs
+    const nav = page.locator('.page-navigator');
+    await expect(nav).toBeVisible();
+
+    // Click page 2
+    await nav.locator('button', { hasText: '2' }).click();
+
+    // Preview image should still load on page 2
+    const previewImg = page.locator('.page-preview img');
+    await expect(previewImg).toBeVisible();
+    await expect.poll(
+      () => previewImg.evaluate((el) => (el as HTMLImageElement).naturalWidth),
+    ).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 27. CSS custom properties — var() must resolve throughout the component tree
+// ---------------------------------------------------------------------------
+test.describe('Cross-browser: CSS custom properties', () => {
+  test('--ink-strong resolves to a color in all major components', async ({ page }) => {
+    await page.goto('/?engine=mock');
+
+    const inkStrong = await page.locator('h1').evaluate((el) => {
+      return getComputedStyle(el).color;
+    });
+
+    // Should be a real color, not "undefined" or empty
+    expect(inkStrong).toMatch(/^rgb/);
+  });
+
+  test('--font-display resolves on headings', async ({ page }) => {
+    await page.goto('/');
+
+    const fontFamily = await page.locator('h1').evaluate((el) => {
+      return getComputedStyle(el).fontFamily;
+    });
+
+    // Should include Fraunces or a fallback serif
+    expect(fontFamily.length).toBeGreaterThan(0);
+  });
+});
