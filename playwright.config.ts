@@ -9,13 +9,13 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'html',
 
   use: {
-    baseURL: 'http://127.0.0.1:4173/copycat/',
+    baseURL: 'http://localhost:4173/copycat/',
     trace: 'on-first-retry',
   },
 
   webServer: {
     command: 'bun run build && bun run preview',
-    url: 'http://127.0.0.1:4173/copycat/',
+    url: 'http://localhost:4173/copycat/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
