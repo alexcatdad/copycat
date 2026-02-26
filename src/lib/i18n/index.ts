@@ -1,7 +1,9 @@
-import { register, init, getLocaleFromNavigator } from 'svelte-i18n';
+import { addMessages, init, getLocaleFromNavigator } from 'svelte-i18n';
+import en from './en.json';
+import ro from './ro.json';
 
-register('en', () => import('./en.json'));
-register('ro', () => import('./ro.json'));
+addMessages('en', en);
+addMessages('ro', ro);
 
 export function setupI18n() {
   const savedLocale = typeof localStorage !== 'undefined'

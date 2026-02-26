@@ -35,7 +35,7 @@
     if (!file) return;
 
     appState = 'loading-model';
-    engine = createEngine(engineTier);
+    engine = await createEngine(engineTier);
     await engine.initialize((p) => { modelLoadProgress = p; });
 
     appState = 'processing';

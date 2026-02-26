@@ -1,18 +1,20 @@
 import type { EngineTier, OCREngine } from '../types';
-import { Florence2Engine } from './florence2-engine';
-import { TesseractEngine } from './tesseract-engine';
 
 export { MockEngine } from './mock-engine';
-export { Florence2Engine } from './florence2-engine';
-export { TesseractEngine } from './tesseract-engine';
 
-export function createEngine(tier: EngineTier): OCREngine {
+export async function createEngine(tier: EngineTier): Promise<OCREngine> {
   switch (tier) {
-    case 'premium':
+    case 'premium': {
+      const { Florence2Engine } = await import('./florence2-engine');
       return new Florence2Engine('webgpu');
-    case 'standard':
+    }
+    case 'standard': {
+      const { Florence2Engine } = await import('./florence2-engine');
       return new Florence2Engine('wasm');
-    case 'basic':
+    }
+    case 'basic': {
+      const { TesseractEngine } = await import('./tesseract-engine');
       return new TesseractEngine();
+    }
   }
 }
