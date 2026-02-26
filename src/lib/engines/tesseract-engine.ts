@@ -21,7 +21,7 @@ export class TesseractEngine implements OCREngine {
 
     const { data } = await this.worker.recognize(image.dataUrl);
 
-    const regions: OCRRegion[] = (data.words ?? []).map((word: any) => ({
+    const regions: OCRRegion[] = ((data as any).words ?? []).map((word: any) => ({
       text: word.text,
       bbox: [
         word.bbox.x0,

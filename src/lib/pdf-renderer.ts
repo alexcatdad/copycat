@@ -23,7 +23,7 @@ export async function renderPdfPages(
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d')!;
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
 
     pages.push({
       dataUrl: canvas.toDataURL('image/png'),

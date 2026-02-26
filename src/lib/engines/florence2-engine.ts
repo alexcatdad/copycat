@@ -22,8 +22,8 @@ export class Florence2Engine implements OCREngine {
     onProgress?.(0);
 
     const dtypeConfig = this.device === 'webgpu'
-      ? { embed_tokens: 'fp16', vision_encoder: 'fp16', encoder_model: 'q4', decoder_model_merged: 'q4' }
-      : { embed_tokens: 'fp32', vision_encoder: 'fp32', encoder_model: 'q4', decoder_model_merged: 'q4' };
+      ? { embed_tokens: 'fp16' as const, vision_encoder: 'fp16' as const, encoder_model: 'q4' as const, decoder_model_merged: 'q4' as const }
+      : { embed_tokens: 'fp32' as const, vision_encoder: 'fp32' as const, encoder_model: 'q4' as const, decoder_model_merged: 'q4' as const };
 
     this.model = await Florence2ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: dtypeConfig,
