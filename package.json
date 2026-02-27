@@ -12,8 +12,11 @@
     "test:watch": "vitest",
     "test:e2e": "bunx playwright test",
     "test:e2e:quality": "bunx playwright test tests/e2e/ocr-quality-comparison.spec.ts",
-    "test:e2e:live": "LIVE_OCR=1 bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1",
-    "test:e2e:live:headed": "LIVE_OCR=1 bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1 --headed",
+    "test:e2e:live": "LIVE_OCR=1 LIVE_OCR_TIERS=standard bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1",
+    "test:e2e:live:all": "LIVE_OCR=1 LIVE_OCR_TIERS=standard,basic bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1",
+    "test:e2e:live:headed": "LIVE_OCR=1 LIVE_OCR_TIERS=standard bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1 --headed",
+    "cache:model:ocr": "bash scripts/cache-ocr-model.sh",
+    "cache:model:got": "bash scripts/cache-ocr-model.sh",
     "demo:ocr-comparison": "bun run scripts/generate-ocr-comparison-demo.ts"
   },
   "dependencies": {
@@ -23,7 +26,8 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
     "svelte-i18n": "^4.0.1",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

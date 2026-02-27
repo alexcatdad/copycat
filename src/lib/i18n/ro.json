@@ -5,12 +5,12 @@
     "privacy": "100% local. Nicio data nu paraseste browserul tau."
   },
   "tier": {
-    "premium": "Accelerare GPU",
-    "standard": "Standard",
+    "premium": "OCR Premium",
+    "standard": "OCR Standard",
     "basic": "OCR de baza",
     "description": {
-      "premium": "Folosind Florence-2 cu accelerare WebGPU",
-      "standard": "Folosind Florence-2 cu procesare CPU",
+      "premium": "Folosind OCR multipas orientat pe calitate (Janus + pase de recuperare)",
+      "standard": "Folosind Janus-Pro-1B cu procesare WASM stabila",
       "basic": "Folosind Tesseract.js pentru extragerea textului"
     }
   },

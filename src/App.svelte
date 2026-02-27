@@ -17,11 +17,13 @@
   import ResultsView from './lib/components/ResultsView.svelte';
   import Footer from './lib/components/Footer.svelte';
   import type { AppState, EngineTier, OCRResult, OCREngine, PageImage, PdfPageDescriptor } from './lib/types';
-  import type { MockProfile } from './lib/engines';
+  import type { MockProfile, OcrModel } from './lib/engines';
 
   setupI18n();
 
   const LOW_QUALITY_THRESHOLD = 0.8;
+  const PREMIUM_JANUS_RETRY_THRESHOLD = 0.9;
+  const PREMIUM_TESSERACT_RETRY_THRESHOLD = 0.84;
 
   let appState = $state<AppState>('idle');
   let engineTier = $state<EngineTier>('basic');
@@ -36,6 +38,8 @@
   let engine: OCREngine | null = null;
   let useMockEngine = $state(false);
   let mockProfile = $state<MockProfile>('default');
+  let ocrModel = $state<OcrModel>('janus-pro-1b');
+  let hfToken = $state<string | undefined>(undefined);
   let strictEngineSelection = $state(false);
   let forceOcrForPdf = $state(false);
   let sourcePdfBytes = $state<Uint8Array | undefined>(undefined);
@@ -49,6 +53,10 @@
 
   function isEngineTier(value: string | null): value is EngineTier {
     return value === 'premium' || value === 'standard' || value === 'basic';
+  }
+
+  function isOcrModel(value: string | null): value is OcrModel {
+    return value === 'janus-pro-1b' || value === 'florence2';
   }
 
   function revokePages(items: PageImage[]) {
@@ -87,6 +95,42 @@
     return maybeResults.map((result) => result ?? fallbackResult());
   }
 
+  function emptyResults(count: number): Array<OCRResult | null> {
+    return Array.from({ length: count }, () => null);
+  }
+
+  function resultRank(result: OCRResult): number {
+    const text = result.text.trim();
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    let rank = result.qualityScore;
+
+    if (wordCount >= 18) {
+      rank += 0.03;
+    }
+    if (text.length >= 120) {
+      rank += 0.02;
+    }
+    if (result.qualityFlags.includes('symbol-noise')) {
+      rank -= 0.05;
+    }
+    if (result.qualityFlags.includes('very-short-text')) {
+      rank -= 0.08;
+    }
+
+    return rank;
+  }
+
+  function selectPreferredResult(current: OCRResult | null, candidate: OCRResult | null): OCRResult | null {
+    if (!current) {
+      return candidate;
+    }
+    if (!candidate) {
+      return current;
+    }
+
+    return resultRank(candidate) > resultRank(current) ? candidate : current;
+  }
+
   async function refreshHistory() {
     historyLoading = true;
     try {
@@ -97,14 +141,18 @@
   }
 
   async function initEngine(tier: EngineTier): Promise<OCREngine> {
-    const eng = await createEngine(useMockEngine ? 'mock' : tier, { mockProfile });
+    const eng = await createEngine(useMockEngine ? 'mock' : tier, { mockProfile, model: ocrModel, hfToken });
     await eng.initialize((p) => { modelLoadProgress = p; });
     return eng;
   }
 
   async function ensureActiveEngine(tier: EngineTier): Promise<OCREngine> {
     if (engine) {
-      await engine.dispose();
+      try {
+        await engine.dispose();
+      } catch (disposeError) {
+        console.warn('Failed to dispose previous OCR engine instance.', disposeError);
+      }
       engine = null;
     }
 
@@ -116,13 +164,94 @@
         throw err;
       }
 
-      if (tier !== 'basic') {
+      if (tier === 'premium') {
+        engineTier = 'standard';
+        engine = await initEngine('standard');
+        return engine;
+      }
+
+      if (tier === 'standard') {
         engineTier = 'basic';
         engine = await initEngine('basic');
         return engine;
       }
+
       throw err;
     }
+  }
+
+  async function applyPremiumQualityBoost(
+    activeEngine: OCREngine,
+    parsedPages: PageImage[],
+    baseResults: Array<OCRResult | null>,
+    pageIndicesForOcr: number[],
+    onResult: (pageIndex: number, result: OCRResult) => void,
+  ): Promise<Array<OCRResult | null>> {
+    let merged = [...baseResults];
+
+    const janusRetryIndices = pageIndicesForOcr
+      .filter((index) => (merged[index]?.qualityScore ?? 0) < PREMIUM_JANUS_RETRY_THRESHOLD);
+
+    if (janusRetryIndices.length > 0) {
+      const janusCandidates = await processPipeline(activeEngine, parsedPages, {
+        pageIndices: janusRetryIndices,
+        existingResults: emptyResults(parsedPages.length),
+        preprocess: {
+          adaptiveThreshold: true,
+          minWidth: 1400,
+          minHeight: 1000,
+          blockSize: 21,
+          thresholdC: 7,
+        },
+        onPageComplete: (_current, _total, pageIndex, result) => {
+          onResult(pageIndex, result);
+        },
+      });
+
+      for (const index of janusRetryIndices) {
+        merged[index] = selectPreferredResult(merged[index] ?? null, janusCandidates[index] ?? null);
+      }
+    }
+
+    const tesseractRetryIndices = pageIndicesForOcr
+      .filter((index) => (merged[index]?.qualityScore ?? 0) < PREMIUM_TESSERACT_RETRY_THRESHOLD);
+
+    if (tesseractRetryIndices.length === 0) {
+      return merged;
+    }
+
+    let rescueEngine: OCREngine | null = null;
+    try {
+      rescueEngine = await initEngine('basic');
+      const tesseractCandidates = await processPipeline(rescueEngine, parsedPages, {
+        pageIndices: tesseractRetryIndices,
+        existingResults: emptyResults(parsedPages.length),
+        preprocess: {
+          adaptiveThreshold: true,
+          minWidth: 1400,
+          minHeight: 1000,
+          blockSize: 19,
+          thresholdC: 9,
+        },
+        onPageComplete: (_current, _total, pageIndex, result) => {
+          onResult(pageIndex, result);
+        },
+      });
+
+      for (const index of tesseractRetryIndices) {
+        merged[index] = selectPreferredResult(merged[index] ?? null, tesseractCandidates[index] ?? null);
+      }
+    } finally {
+      if (rescueEngine) {
+        try {
+          await rescueEngine.dispose();
+        } catch (disposeError) {
+          console.warn('Failed to dispose temporary rescue OCR engine.', disposeError);
+        }
+      }
+    }
+
+    return merged;
   }
 
   async function persistCurrentJob() {
@@ -225,16 +354,72 @@
         .filter(({ descriptor }) => descriptor.sourceKind !== 'pdf-text')
         .map(({ index }) => index);
 
-      const processed = pageIndicesForOcr.length > 0
-        ? await processPipeline(activeEngine, parsedPages, {
-          pageIndices: pageIndicesForOcr,
-          existingResults: initialResults,
-          onPageComplete: (_current, _total, pageIndex, result) => {
-            currentPage = pageIndex + 1;
-            currentResult = result;
-          },
-        })
-        : initialResults;
+      const onPageResult = (pageIndex: number, result: OCRResult) => {
+        currentPage = pageIndex + 1;
+        currentResult = result;
+      };
+
+      let processed: Array<OCRResult | null>;
+      if (pageIndicesForOcr.length > 0) {
+        try {
+          processed = await processPipeline(activeEngine, parsedPages, {
+            pageIndices: pageIndicesForOcr,
+            existingResults: initialResults,
+            onPageComplete: (_current, _total, pageIndex, result) => {
+              onPageResult(pageIndex, result);
+            },
+          });
+        } catch (primaryError) {
+          if (strictEngineSelection || useMockEngine || engineTier === 'basic') {
+            throw primaryError;
+          }
+
+          const fallbackTiers: EngineTier[] = engineTier === 'premium'
+            ? ['standard', 'basic']
+            : ['basic'];
+
+          let recovered = false;
+          let lastError: unknown = primaryError;
+
+          for (const fallbackTier of fallbackTiers) {
+            try {
+              console.warn(`Primary OCR tier failed; retrying with ${fallbackTier} engine.`, primaryError);
+              const fallbackEngine = await ensureActiveEngine(fallbackTier);
+              engineTier = fallbackTier;
+              currentPage = 0;
+              currentResult = null;
+
+              processed = await processPipeline(fallbackEngine, parsedPages, {
+                pageIndices: pageIndicesForOcr,
+                existingResults: initialResults,
+                onPageComplete: (_current, _total, pageIndex, result) => {
+                  onPageResult(pageIndex, result);
+                },
+              });
+              recovered = true;
+              break;
+            } catch (fallbackError) {
+              lastError = fallbackError;
+            }
+          }
+
+          if (!recovered) {
+            throw lastError;
+          }
+        }
+
+        if (engineTier === 'premium' && !useMockEngine) {
+          processed = await applyPremiumQualityBoost(
+            activeEngine,
+            parsedPages,
+            processed,
+            pageIndicesForOcr,
+            onPageResult,
+          );
+        }
+      } else {
+        processed = initialResults;
+      }
 
       ocrResults = normalizeResults(processed);
       currentPage = Math.min(1, totalPages);
@@ -346,8 +531,16 @@
   onMount(async () => {
     const params = new URLSearchParams(window.location.search);
     const requestedEngine = params.get('engine');
+    const requestedModel = params.get('model');
+    const requestedToken = params.get('hfToken');
     strictEngineSelection = params.get('strictEngine') === '1' || params.get('strictEngine') === 'true';
     forceOcrForPdf = params.get('forceOcr') === '1' || params.get('forceOcr') === 'true';
+    if (isOcrModel(requestedModel)) {
+      ocrModel = requestedModel;
+    }
+    if (requestedToken) {
+      hfToken = requestedToken;
+    }
 
     if (requestedEngine === 'mock') {
       useMockEngine = true;
@@ -374,7 +567,10 @@
   onDestroy(() => {
     replacePages([]);
     if (engine) {
-      void engine.dispose();
+      const activeEngine = engine;
+      void activeEngine.dispose().catch((disposeError) => {
+        console.warn('Failed to dispose OCR engine on teardown.', disposeError);
+      });
       engine = null;
     }
   });

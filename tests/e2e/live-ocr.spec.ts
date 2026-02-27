@@ -1,127 +1,233 @@
 import { test, expect, type Page } from '@playwright/test';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { evaluateOCRQuality } from '../../src/lib/ocr-quality';
 
-const LIVE_OCR_ENABLED = process.env.LIVE_OCR === '1';
-const LIVE_OCR_TITLE = 'CopyCat Live OCR Benchmark';
-const LIVE_OCR_SUBTITLE = 'Real Florence-2/Tesseract quality check';
+type LiveTier = 'basic' | 'standard';
 
-const LIVE_OCR_BODY_LINES = [
-  'ACME Supplies, Inc.',
+const LIVE_OCR_ENABLED = process.env.LIVE_OCR === '1';
+const HF_TOKEN = process.env.HF_TOKEN;
+const LIVE_OCR_TIERS = (process.env.LIVE_OCR_TIERS ?? 'standard')
+  .split(',')
+  .map((tier) => tier.trim())
+  .filter((tier): tier is LiveTier => tier === 'basic' || tier === 'standard');
+const STANDARD_MODEL_CONFIG_URL = 'https://huggingface.co/onnx-community/Janus-Pro-1B-ONNX/resolve/main/config.json';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LIVE_JPEG = path.join(__dirname, '../fixtures/live-ocr-sample.jpg');
+
+const IMAGE_GROUND_TRUTH = [
+  'This is a lot of 12 point text to test the ocr code and see if it works on all types of file format.',
+  'The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.',
+  'The quick brown dog jumped over the lazy fox. The quick brown dog jumped over the lazy fox.',
+].join(' ');
+
+const NATIVE_PDF_LINES = [
   'Invoice #4821',
-  'Bill To: Northwind Logistics',
-  'Item A4 Paper (5 boxes) x 3 @ $89.50 = $268.50',
-  'Item USB-C Dock x 2 @ $149.00 = $298.00',
-  'Subtotal: $566.50',
-  'Tax (8.75%): $49.57',
   'Total due: $616.07',
   'Payment due date: 2026-03-01',
-  'Notes: Deliver before 5pm. Leave at loading dock B.',
 ] as const;
 
-const LIVE_OCR_ALL_VISIBLE_LINES = [
-  LIVE_OCR_TITLE,
-  LIVE_OCR_SUBTITLE,
-  ...LIVE_OCR_BODY_LINES,
-] as const;
-
-const LIVE_OCR_GROUND_TRUTH = LIVE_OCR_ALL_VISIBLE_LINES.join('\n');
-
-async function createLiveBenchmarkPdf(): Promise<Buffer> {
+async function createNativeTextPdf(): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([612, 792]);
-  const headerFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const bodyFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  page.drawText(LIVE_OCR_TITLE, {
-    x: 48,
-    y: 744,
-    size: 18,
-    font: headerFont,
-  });
-
-  page.drawText(LIVE_OCR_SUBTITLE, {
-    x: 48,
-    y: 720,
-    size: 12,
-    font: bodyFont,
-  });
-
-  LIVE_OCR_BODY_LINES.forEach((line, index) => {
+  NATIVE_PDF_LINES.forEach((line, index) => {
     page.drawText(line, {
       x: 48,
-      y: 684 - index * 28,
+      y: 730 - index * 28,
       size: 15,
-      font: bodyFont,
+      font,
     });
   });
 
   return Buffer.from(await pdfDoc.save());
 }
 
-async function runEngine(page: Page, tier: 'standard' | 'basic', sourcePdf: Buffer) {
-  await page.goto(`/?engine=${tier}&strictEngine=1`);
-  await expect(page.locator('.upload-zone')).toBeVisible();
-  await expect(page.locator('.tier-badge')).toContainText(tier === 'standard' ? 'Standard' : 'Basic OCR');
-
-  await page.locator('input[type="file"]').setInputFiles({
-    name: 'live-ocr-source.pdf',
-    mimeType: 'application/pdf',
-    buffer: sourcePdf,
-  });
-
-  await expect(page.locator('.results-view')).toBeVisible({ timeout: 8 * 60 * 1000 });
-  const extractedText = (await page.locator('.extracted-text').innerText()).trim();
-  const metrics = evaluateOCRQuality(LIVE_OCR_GROUND_TRUTH, extractedText);
-
-  return { extractedText, metrics };
+async function createScannedPdfFromJpeg(jpegPath: string): Promise<Buffer> {
+  const jpegBytes = await readFile(jpegPath);
+  const pdfDoc = await PDFDocument.create();
+  const embedded = await pdfDoc.embedJpg(jpegBytes);
+  const page = pdfDoc.addPage([embedded.width, embedded.height]);
+  page.drawImage(embedded, { x: 0, y: 0, width: embedded.width, height: embedded.height });
+  return Buffer.from(await pdfDoc.save());
 }
 
-test.describe('Live OCR engines (Florence-2 + Tesseract)', () => {
-  test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run live OCR engine tests.');
+function queryForTier(tier: LiveTier): string {
+  const tokenParam = HF_TOKEN ? `&hfToken=${encodeURIComponent(HF_TOKEN)}` : '';
+  if (tier === 'standard') {
+    return `/?engine=standard&strictEngine=1&model=janus-pro-1b${tokenParam}`;
+  }
+  return `/?engine=basic&strictEngine=1${tokenParam}`;
+}
 
-  test('processes a real PDF with standard (Florence-2) and basic (Tesseract)', async ({ page }) => {
-    test.setTimeout(15 * 60 * 1000);
+function qualityThresholds(tier: LiveTier): { charAccuracy: number; wordAccuracy: number } {
+  if (tier === 'basic') {
+    return { charAccuracy: 0.9, wordAccuracy: 0.75 };
+  }
+  return { charAccuracy: 0.7, wordAccuracy: 0.4 };
+}
 
-    const sourcePdf = await createLiveBenchmarkPdf();
-    const standard = await runEngine(page, 'standard', sourcePdf);
-    const basic = await runEngine(page, 'basic', sourcePdf);
+async function uploadPath(page: Page, query: string, filePath: string): Promise<void> {
+  await page.goto(query);
+  await expect(page.locator('.upload-zone')).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles(filePath);
+  await expect(page.locator('.results-view')).toBeVisible({ timeout: 10 * 60 * 1000 });
+}
 
-    const liveResults = {
-      generatedAt: new Date().toISOString(),
-      groundTruth: LIVE_OCR_GROUND_TRUTH,
-      engines: {
-        standard: standard.metrics,
-        basic: basic.metrics,
-      },
-      extractedText: {
-        standard: standard.extractedText,
-        basic: basic.extractedText,
-      },
-    };
+async function uploadBuffer(page: Page, query: string, file: { name: string; mimeType: string; buffer: Buffer }): Promise<void> {
+  await page.goto(query);
+  await expect(page.locator('.upload-zone')).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles(file);
+  await expect(page.locator('.results-view')).toBeVisible({ timeout: 10 * 60 * 1000 });
+}
 
-    const outputDir = path.resolve(process.cwd(), 'docs/demo');
-    await mkdir(outputDir, { recursive: true });
-    await writeFile(
-      path.join(outputDir, 'live-ocr-results.json'),
-      `${JSON.stringify(liveResults, null, 2)}\n`,
-      'utf8',
-    );
-    console.log('LIVE_OCR_RESULTS', JSON.stringify(liveResults));
+async function downloadDocxAndValidate(page: Page): Promise<number> {
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByText('Download DOCX').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('copycat-output.docx');
 
-    expect(standard.extractedText.length).toBeGreaterThan(30);
-    expect(basic.extractedText.length).toBeGreaterThan(30);
+  const filePath = await download.path();
+  expect(filePath).toBeTruthy();
+  const fileStats = await stat(filePath!);
+  expect(fileStats.size).toBeGreaterThan(1024);
 
-    // Live runs can vary by hardware/runtime; keep thresholds practical but meaningful.
-    expect(standard.metrics.charAccuracy).toBeGreaterThan(0.65);
-    expect(standard.metrics.wordAccuracy).toBeGreaterThan(0.45);
-    expect(basic.metrics.charAccuracy).toBeGreaterThan(0.55);
-    expect(basic.metrics.wordAccuracy).toBeGreaterThan(0.35);
+  const bytes = await readFile(filePath!);
+  expect(bytes[0]).toBe(0x50);
+  expect(bytes[1]).toBe(0x4b);
+  return fileStats.size;
+}
 
-    // Engines can trade wins on specific documents; guard against large regressions only.
-    expect(Math.abs(standard.metrics.charAccuracy - basic.metrics.charAccuracy)).toBeLessThanOrEqual(0.2);
-    expect(Math.abs(standard.metrics.wordAccuracy - basic.metrics.wordAccuracy)).toBeLessThanOrEqual(0.2);
+async function downloadPdfAndValidate(page: Page, expectedPages: number): Promise<{ size: number; bytes: Buffer }> {
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByText('Download Searchable PDF').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('copycat-output.pdf');
+
+  const filePath = await download.path();
+  expect(filePath).toBeTruthy();
+  const fileStats = await stat(filePath!);
+  expect(fileStats.size).toBeGreaterThan(1024);
+
+  const bytes = await readFile(filePath!);
+  const pdfDoc = await PDFDocument.load(bytes);
+  expect(pdfDoc.getPageCount()).toBe(expectedPages);
+
+  return { size: fileStats.size, bytes };
+}
+
+async function restartToIdle(page: Page): Promise<void> {
+  await page.getByText('Process another document').click();
+  await expect(page.locator('.upload-zone')).toBeVisible();
+}
+
+async function assertStandardModelAccess(): Promise<void> {
+  if (!LIVE_OCR_TIERS.includes('standard')) {
+    return;
+  }
+
+  const headers: Record<string, string> = {};
+  if (HF_TOKEN) {
+    headers.Authorization = `Bearer ${HF_TOKEN}`;
+  }
+
+  const response = await fetch(STANDARD_MODEL_CONFIG_URL, { method: 'HEAD', headers });
+  if (response.ok) {
+    return;
+  }
+
+  throw new Error(
+    `Janus model access check failed (HTTP ${response.status}). `
+    + 'Set HF_TOKEN with access to onnx-community/Janus-Pro-1B-ONNX for repeatable standard-tier runs.',
+  );
+}
+
+test.describe('Live OCR production path validation', () => {
+  test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run live OCR artifact tests.');
+
+  test('covers image OCR, native PDF, forced OCR PDF, downloads, history, and clear paths', async ({ page }) => {
+    test.setTimeout(30 * 60 * 1000);
+    expect(LIVE_OCR_TIERS.length).toBeGreaterThan(0);
+    await assertStandardModelAccess();
+
+    const nativePdfBuffer = await createNativeTextPdf();
+    const scannedPdfBuffer = await createScannedPdfFromJpeg(LIVE_JPEG);
+
+    for (const tier of LIVE_OCR_TIERS) {
+      const threshold = qualityThresholds(tier);
+
+      // Path 1: image upload -> OCR results -> DOCX/PDF downloads.
+      await uploadPath(page, queryForTier(tier), LIVE_JPEG);
+      await expect(page.locator('.text-meta .pill').first()).toContainText('OCR text');
+      const imageText = (await page.locator('.extracted-text').innerText()).trim();
+      const imageQuality = evaluateOCRQuality(IMAGE_GROUND_TRUTH, imageText);
+      expect(imageQuality.charAccuracy).toBeGreaterThanOrEqual(threshold.charAccuracy);
+      expect(imageQuality.wordAccuracy).toBeGreaterThanOrEqual(threshold.wordAccuracy);
+      const imageDocxBytes = await downloadDocxAndValidate(page);
+      const imagePdf = await downloadPdfAndValidate(page, 1);
+      await restartToIdle(page);
+
+      // Path 2: native text PDF -> pdf-text branch -> PDF download should preserve original bytes.
+      await uploadBuffer(page, queryForTier(tier), {
+        name: 'native-source.pdf',
+        mimeType: 'application/pdf',
+        buffer: nativePdfBuffer,
+      });
+      await expect(page.locator('.text-meta .pill').first()).toContainText('Native PDF text');
+      const nativeText = await page.locator('.extracted-text').innerText();
+      for (const line of NATIVE_PDF_LINES) {
+        expect(nativeText).toContain(line);
+      }
+      const nativePdf = await downloadPdfAndValidate(page, 1);
+      expect(Buffer.compare(nativePdf.bytes, nativePdfBuffer)).toBe(0);
+      await restartToIdle(page);
+
+      // Path 3: scanned PDF + forceOcr -> OCR pipeline branch for PDFs.
+      await uploadBuffer(page, `${queryForTier(tier)}&forceOcr=1`, {
+        name: 'scanned-source.pdf',
+        mimeType: 'application/pdf',
+        buffer: scannedPdfBuffer,
+      });
+      await expect(page.locator('.text-meta .pill').first()).toContainText('OCR text');
+      const scannedText = (await page.locator('.extracted-text').innerText()).trim();
+      const scannedQuality = evaluateOCRQuality(IMAGE_GROUND_TRUTH, scannedText);
+      expect(scannedQuality.charAccuracy).toBeGreaterThanOrEqual(Math.max(0.55, threshold.charAccuracy - 0.15));
+      expect(scannedQuality.wordAccuracy).toBeGreaterThanOrEqual(Math.max(0.25, threshold.wordAccuracy - 0.2));
+      const scannedPdf = await downloadPdfAndValidate(page, 1);
+      await restartToIdle(page);
+
+      const historyItems = page.locator('.history-panel .job-item');
+      expect(await historyItems.count()).toBeGreaterThanOrEqual(3);
+      await historyItems.first().click();
+      await expect(page.locator('.results-view')).toBeVisible();
+      await restartToIdle(page);
+
+      const clearButton = page.getByRole('button', { name: 'Clear local history/cache' });
+      await clearButton.click();
+      await expect(page.locator('.history-panel')).toContainText('No recent documents yet.');
+
+      console.log('LIVE_OCR_PATH_RESULT', JSON.stringify({
+        tier,
+        model: 'janus-pro-1b',
+        image: {
+          charAccuracy: imageQuality.charAccuracy,
+          wordAccuracy: imageQuality.wordAccuracy,
+          docxBytes: imageDocxBytes,
+          pdfBytes: imagePdf.size,
+        },
+        nativePdf: {
+          pdfBytes: nativePdf.size,
+        },
+        scannedPdf: {
+          charAccuracy: scannedQuality.charAccuracy,
+          wordAccuracy: scannedQuality.wordAccuracy,
+          pdfBytes: scannedPdf.size,
+        },
+      }));
+    }
   });
 });

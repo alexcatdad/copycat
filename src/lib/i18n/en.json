@@ -5,12 +5,12 @@
     "privacy": "100% client-side. No data leaves your browser."
   },
   "tier": {
-    "premium": "GPU Accelerated",
-    "standard": "Standard",
+    "premium": "Premium OCR",
+    "standard": "Standard OCR",
     "basic": "Basic OCR",
     "description": {
-      "premium": "Using Florence-2 with WebGPU acceleration",
-      "standard": "Using Florence-2 with CPU processing",
+      "premium": "Using quality-first multipass OCR (Janus + rescue passes)",
+      "standard": "Using Janus-Pro-1B with stable WASM processing",
       "basic": "Using Tesseract.js for text extraction"
     }
   },
