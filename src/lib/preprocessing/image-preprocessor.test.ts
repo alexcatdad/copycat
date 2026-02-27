@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _testOnly } from './image-preprocessor';
+import { preprocessImage, _testOnly } from './image-preprocessor';
 
 const { toGrayscale, adaptiveThresholdMean, computeIntegralImage } = _testOnly;
 
@@ -102,5 +102,19 @@ describe('adaptiveThresholdMean', () => {
     // The center pixel should be black in both since it's far below the mean
     expect(smallBlock[4 * size + 4]).toBe(0);
     expect(largeBlock[4 * size + 4]).toBe(0);
+  });
+});
+
+describe('preprocessImage', () => {
+  it('rejects zero-width dimensions', async () => {
+    await expect(preprocessImage(new Blob(), 0, 600)).rejects.toThrow('Invalid image dimensions');
+  });
+
+  it('rejects zero-height dimensions', async () => {
+    await expect(preprocessImage(new Blob(), 800, 0)).rejects.toThrow('Invalid image dimensions');
+  });
+
+  it('rejects negative dimensions', async () => {
+    await expect(preprocessImage(new Blob(), -1, 600)).rejects.toThrow('Invalid image dimensions');
   });
 });

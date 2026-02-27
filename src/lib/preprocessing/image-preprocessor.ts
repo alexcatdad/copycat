@@ -40,6 +40,20 @@ export interface PreprocessedImage {
  * Load an image source (blob, data URL, or object URL) into ImageData
  * using OffscreenCanvas where available, falling back to a regular canvas.
  */
+function createCanvasContext(
+  width: number,
+  height: number,
+): { canvas: OffscreenCanvas | HTMLCanvasElement; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(width, height);
+    return { canvas, ctx: canvas.getContext('2d')! };
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return { canvas, ctx: canvas.getContext('2d')! };
+}
+
 async function loadImageData(
   src: string | Blob,
   targetWidth: number,
@@ -49,9 +63,7 @@ async function loadImageData(
     ? await createImageBitmap(await (await fetch(src)).blob())
     : await createImageBitmap(src);
 
-  const canvas = new OffscreenCanvas(targetWidth, targetHeight);
-  const ctx = canvas.getContext('2d')!;
-  // Lanczos-quality interpolation (browser uses high-quality resampling by default)
+  const { ctx } = createCanvasContext(targetWidth, targetHeight);
   ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
   bitmap.close();
   return ctx.getImageData(0, 0, targetWidth, targetHeight);
@@ -141,6 +153,10 @@ export async function preprocessImage(
 ): Promise<PreprocessedImage> {
   const opts = { ...DEFAULTS, ...options };
 
+  if (originalWidth <= 0 || originalHeight <= 0) {
+    throw new Error(`Invalid image dimensions: ${originalWidth}x${originalHeight}`);
+  }
+
   // Determine if upscaling is needed
   let targetWidth = originalWidth;
   let targetHeight = originalHeight;
@@ -159,10 +175,9 @@ export async function preprocessImage(
 
   if (!opts.adaptiveThreshold) {
     // Just return the (possibly upscaled) image without thresholding
-    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
-    const ctx = canvas.getContext('2d')!;
+    const { canvas, ctx } = createCanvasContext(targetWidth, targetHeight);
     ctx.putImageData(imageData, 0, 0);
-    const outputBlob = await canvas.convertToBlob({ type: 'image/png' });
+    const outputBlob = await canvasToBlob(canvas);
     const dataUrl = await blobToDataUrl(outputBlob);
     return { blob: outputBlob, dataUrl, width: targetWidth, height: targetHeight };
   }
@@ -187,12 +202,23 @@ export async function preprocessImage(
     outputData.data[offset + 3] = 255;
   }
 
-  const canvas = new OffscreenCanvas(targetWidth, targetHeight);
-  const ctx = canvas.getContext('2d')!;
-  ctx.putImageData(outputData, 0, 0);
-  const outputBlob = await canvas.convertToBlob({ type: 'image/png' });
+  const { canvas: outCanvas, ctx: outCtx } = createCanvasContext(targetWidth, targetHeight);
+  outCtx.putImageData(outputData, 0, 0);
+  const outputBlob = await canvasToBlob(outCanvas);
   const dataUrl = await blobToDataUrl(outputBlob);
   return { blob: outputBlob, dataUrl, width: targetWidth, height: targetHeight };
+}
+
+async function canvasToBlob(canvas: OffscreenCanvas | HTMLCanvasElement): Promise<Blob> {
+  if (canvas instanceof OffscreenCanvas) {
+    return canvas.convertToBlob({ type: 'image/png' });
+  }
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas toBlob returned null'));
+    }, 'image/png');
+  });
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string> {

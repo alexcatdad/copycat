@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateDocx, _testOnly } from './docx-generator';
 import type { OCRResult, OCRRegion, PageImage } from '../types';
 
-const { groupIntoLines, classifyLines } = _testOnly;
+const { groupIntoLines, classifyLines, computeGlobalMedianHeight } = _testOnly;
 
 const mockPages: PageImage[] = [
   { id: 'p1', src: 'blob:p1', blob: new Blob(['p1'], { type: 'image/png' }), width: 800, height: 1200, pageNumber: 1, sourceKind: 'image' },
@@ -103,7 +103,7 @@ describe('classifyLines', () => {
       [{ text: 'Normal body text that spans some width here.', bbox: [50, 100, 500, 20] }],
       [{ text: 'Another body line.', bbox: [50, 130, 400, 20] }],
     ];
-    const classified = classifyLines(lines, page);
+    const classified = classifyLines(lines, page, computeGlobalMedianHeight(lines));
     expect(classified[0].kind).toBe('heading');
     expect(classified[1].kind).toBe('body');
   });
@@ -114,7 +114,7 @@ describe('classifyLines', () => {
       [{ text: '• Second item', bbox: [80, 80, 300, 20] }],
       [{ text: 'Normal text', bbox: [50, 120, 300, 20] }],
     ];
-    const classified = classifyLines(lines, page);
+    const classified = classifyLines(lines, page, computeGlobalMedianHeight(lines));
     expect(classified[0].kind).toBe('bullet');
     expect(classified[1].kind).toBe('bullet');
     expect(classified[2].kind).toBe('body');
@@ -124,7 +124,7 @@ describe('classifyLines', () => {
     const lines: OCRRegion[][] = [
       [{ text: '- Item A', bbox: [80, 50, 300, 20] }],
     ];
-    const classified = classifyLines(lines, page);
+    const classified = classifyLines(lines, page, computeGlobalMedianHeight(lines));
     expect(classified[0].kind).toBe('bullet');
   });
 
@@ -133,7 +133,7 @@ describe('classifyLines', () => {
       [{ text: '1. First step', bbox: [80, 50, 300, 20] }],
       [{ text: '2) Second step', bbox: [80, 80, 300, 20] }],
     ];
-    const classified = classifyLines(lines, page);
+    const classified = classifyLines(lines, page, computeGlobalMedianHeight(lines));
     expect(classified[0].kind).toBe('numbered');
     expect(classified[0].listNumber).toBe(1);
     expect(classified[1].kind).toBe('numbered');
@@ -149,7 +149,7 @@ describe('classifyLines', () => {
         { text: 'Total', bbox: [800, 50, 80, 20] },
       ],
     ];
-    const classified = classifyLines(lines, page);
+    const classified = classifyLines(lines, page, computeGlobalMedianHeight(lines));
     expect(classified[0].kind).toBe('table-row');
   });
 });

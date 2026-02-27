@@ -6,27 +6,37 @@ const {
   mockGenerate,
   mockBatchDecode,
   mockProcess,
+  mockModelDispose,
+  mockProcessorDispose,
+  mockTokenizerDispose,
 } = vi.hoisted(() => ({
   mockGenerate: vi.fn().mockResolvedValue([[1, 2, 3]]),
   mockBatchDecode: vi.fn().mockReturnValue([
     '<ref>Hello World</ref><box>[[100,200,500,300]]</box><ref>Second line</ref><box>[[100,400,600,500]]</box>',
   ]),
   mockProcess: vi.fn().mockReturnValue({}),
+  mockModelDispose: vi.fn().mockResolvedValue(undefined),
+  mockProcessorDispose: vi.fn().mockResolvedValue(undefined),
+  mockTokenizerDispose: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@huggingface/transformers', () => ({
   AutoModel: {
     from_pretrained: vi.fn().mockResolvedValue({
       generate: mockGenerate,
+      dispose: mockModelDispose,
     }),
   },
   AutoProcessor: {
-    from_pretrained: vi.fn().mockResolvedValue(mockProcess),
+    from_pretrained: vi.fn().mockResolvedValue(
+      Object.assign(mockProcess, { dispose: mockProcessorDispose }),
+    ),
   },
   AutoTokenizer: {
     from_pretrained: vi.fn().mockResolvedValue(
       Object.assign(vi.fn().mockReturnValue({}), {
         batch_decode: mockBatchDecode,
+        dispose: mockTokenizerDispose,
       }),
     ),
   },
@@ -76,6 +86,20 @@ describe('GotOcr2Engine', () => {
     const engine = new GotOcr2Engine('webgpu');
     await engine.initialize();
     await expect(engine.dispose()).resolves.toBeUndefined();
+  });
+
+  it('dispose awaits component cleanup before nulling', async () => {
+    mockModelDispose.mockClear();
+    mockProcessorDispose.mockClear();
+    mockTokenizerDispose.mockClear();
+
+    const engine = new GotOcr2Engine('webgpu');
+    await engine.initialize();
+    await engine.dispose();
+
+    expect(mockModelDispose).toHaveBeenCalledTimes(1);
+    expect(mockProcessorDispose).toHaveBeenCalledTimes(1);
+    expect(mockTokenizerDispose).toHaveBeenCalledTimes(1);
   });
 });
 

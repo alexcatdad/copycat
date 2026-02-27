@@ -1,6 +1,9 @@
 import {
+  AlignmentType,
+  BorderStyle,
   Document,
   HeadingLevel,
+  LevelFormat,
   Packer,
   Paragraph,
   SectionType,
@@ -9,8 +12,6 @@ import {
   TableRow,
   TextRun,
   WidthType,
-  BorderStyle,
-  AlignmentType,
 } from 'docx';
 import type { OCRResult, OCRRegion, PageImage } from '../types';
 
@@ -49,6 +50,21 @@ export async function generateDocx(
   );
 
   const doc = new Document({
+    numbering: {
+      config: [
+        {
+          reference: 'ocr-numbered-list',
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.DECIMAL,
+              text: '%1.',
+              alignment: AlignmentType.START,
+            },
+          ],
+        },
+      ],
+    },
     sections: sections.length > 0 ? sections : [{ children: [] }],
   });
 
@@ -65,8 +81,9 @@ function buildSection(
   page: PageImage | undefined,
 ): { properties: any; children: any[] } {
   const lines = groupIntoLines(result.regions);
-  const classified = classifyLines(lines, page);
-  const children = renderBlocks(classified, page);
+  const globalMedianHeight = computeGlobalMedianHeight(lines);
+  const classified = classifyLines(lines, page, globalMedianHeight);
+  const children = renderBlocks(classified, page, globalMedianHeight);
 
   return {
     properties: { type: SectionType.NEXT_PAGE },
@@ -90,11 +107,13 @@ function groupIntoLines(regions: OCRRegion[]): OCRRegion[][] {
 
   for (let i = 1; i < sorted.length; i++) {
     const current = lines[lines.length - 1];
-    const ref = current[0];
+    // Use running median y of the current line to avoid baseline drift
+    const currentYValues = current.map((r) => r.bbox[1]).sort((a, b) => a - b);
+    const medianY = currentYValues[Math.floor(currentYValues.length / 2)];
     const region = sorted[i];
-    const threshold = Math.max(ref.bbox[3], region.bbox[3]) * 0.55;
+    const threshold = Math.max(current[0].bbox[3], region.bbox[3]) * 0.55;
 
-    if (Math.abs(region.bbox[1] - ref.bbox[1]) <= threshold) {
+    if (Math.abs(region.bbox[1] - medianY) <= threshold) {
       current.push(region);
       current.sort((a, b) => a.bbox[0] - b.bbox[0]);
     } else {
@@ -105,19 +124,21 @@ function groupIntoLines(regions: OCRRegion[]): OCRRegion[][] {
   return lines;
 }
 
+// ── Median height ─────────────────────────────────────────────────────────────
+
+function computeGlobalMedianHeight(lines: OCRRegion[][]): number {
+  const allHeights = lines.flatMap((l) => l.map((r) => r.bbox[3])).sort((a, b) => a - b);
+  return allHeights.length > 0 ? allHeights[Math.floor(allHeights.length / 2)] : 20;
+}
+
 // ── Line classification ───────────────────────────────────────────────────────
 
 function classifyLines(
   lines: OCRRegion[][],
   page: PageImage | undefined,
+  globalMedianHeight: number,
 ): ClassifiedLine[] {
   const pageWidth = page?.width ?? 1000;
-
-  // Compute global median height to distinguish headings from body text
-  const allHeights = lines.flatMap((l) => l.map((r) => r.bbox[3])).sort((a, b) => a - b);
-  const globalMedianHeight = allHeights.length > 0
-    ? allHeights[Math.floor(allHeights.length / 2)]
-    : 20;
 
   return lines.map((regions) => {
     const heights = regions.map((r) => r.bbox[3]).sort((a, b) => a - b);
@@ -171,6 +192,7 @@ function classifyLines(
 function renderBlocks(
   classified: ClassifiedLine[],
   page: PageImage | undefined,
+  globalMedianHeight: number,
 ): (Paragraph | Table)[] {
   const elements: (Paragraph | Table)[] = [];
   let i = 0;
@@ -180,7 +202,7 @@ function renderBlocks(
 
     switch (line.kind) {
       case 'heading':
-        elements.push(renderHeading(line));
+        elements.push(renderHeading(line, globalMedianHeight));
         i++;
         break;
 
@@ -227,9 +249,9 @@ function renderBlocks(
   return elements;
 }
 
-function renderHeading(line: ClassifiedLine): Paragraph {
-  // Map relative size to heading level: very large → H1, medium-large → H2
-  const level = line.medianHeight > 40
+function renderHeading(line: ClassifiedLine, globalMedianHeight: number): Paragraph {
+  // Map relative size to heading level: > 2x body → H1, otherwise → H2
+  const level = line.medianHeight > globalMedianHeight * 2
     ? HeadingLevel.HEADING_1
     : HeadingLevel.HEADING_2;
 
@@ -265,7 +287,7 @@ function renderBullet(line: ClassifiedLine): Paragraph {
 function renderNumberedItem(line: ClassifiedLine): Paragraph {
   const cleanText = line.text.replace(NUMBERED_PREFIX, '');
   return new Paragraph({
-    bullet: { level: 0 },
+    numbering: { reference: 'ocr-numbered-list', level: 0 },
     children: [
       new TextRun({
         text: cleanText,
@@ -356,5 +378,6 @@ function estimateFontSizeFromHeight(heightPx: number): number {
 export const _testOnly = {
   groupIntoLines,
   classifyLines,
+  computeGlobalMedianHeight,
   renderBlocks,
 };

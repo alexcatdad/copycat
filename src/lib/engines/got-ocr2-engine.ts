@@ -92,6 +92,9 @@ export class GotOcr2Engine implements OCREngine {
   }
 
   async dispose(): Promise<void> {
+    await this.model?.dispose?.();
+    await this.processor?.dispose?.();
+    await this.tokenizer?.dispose?.();
     this.model = null;
     this.processor = null;
     this.tokenizer = null;
