@@ -162,6 +162,9 @@ function groupRegionsIntoLines(regions: OCRRegion[]): OCRRegion[][] {
   return lines;
 }
 
+/**
+ * Compute the optimal font size for a text region, capping to the bounding box height.
+ */
 function fitFontSize(font: PDFFont, text: string, boxWidth: number, boxHeight: number): number {
   const cappedHeight = clamp(boxHeight * 0.85, 4, 48);
   const width = Math.max(boxWidth, 1);
@@ -180,6 +183,36 @@ function fitFontSize(font: PDFFont, text: string, boxWidth: number, boxHeight: n
   return clamp(fontSize, minFont, 48);
 }
 
+/**
+ * Compute extra per-character spacing so the rendered text width exactly
+ * matches the OCR bounding box width. This prevents the "drifting" selection
+ * problem where the blue highlight doesn't align with the visual text.
+ *
+ * characterSpacing = (boxWidth - naturalWidth) / max(charCount - 1, 1)
+ */
+function computeCharacterSpacing(
+  font: PDFFont,
+  text: string,
+  fontSize: number,
+  boxWidth: number,
+): number {
+  const naturalWidth = font.widthOfTextAtSize(text, fontSize);
+  const charCount = text.length;
+
+  if (charCount <= 1 || naturalWidth >= boxWidth) {
+    return 0;
+  }
+
+  const extra = boxWidth - naturalWidth;
+  return extra / (charCount - 1);
+}
+
+/**
+ * Draw invisible (opacity=0) text at the precise bounding box position.
+ * Uses character spacing to stretch the text to match the visual width,
+ * and transforms coordinates from top-left origin (browser/OCR) to
+ * bottom-left origin (PDF).
+ */
 function drawInvisibleRegionText(
   page: any,
   pageImage: PageImage,
@@ -199,20 +232,33 @@ function drawInvisibleRegionText(
   const [x, y, w, h] = bbox;
   const fontSize = fitFontSize(font, text, w, h);
 
-  const pdfY = pageImage.height - y - h;
+  // PDF coordinate transform: origin at bottom-left, y increases upward.
+  // OCR bbox y is distance from top. Baseline sits near the bottom of the box.
+  const baselineOffset = fontSize * 0.2; // approximate descender clearance
+  const pdfY = pageImage.height - y - h + baselineOffset;
+
   if (!Number.isFinite(pdfY) || !Number.isFinite(fontSize)) {
     return;
   }
 
+  const charSpacing = computeCharacterSpacing(font, text, fontSize, w);
+
   try {
-    page.drawText(text, {
+    const drawOptions: Record<string, any> = {
       x,
       y: clamp(pdfY, 0, pageImage.height),
       size: fontSize,
       font,
       color: rgb(0, 0, 0),
       opacity: 0,
-    });
+    };
+
+    // Only set characterSpacing when it meaningfully adjusts width
+    if (charSpacing > 0.01) {
+      drawOptions.characterSpacing = charSpacing;
+    }
+
+    page.drawText(text, drawOptions);
   } catch {
     // Skip malformed region data rather than failing export.
   }
