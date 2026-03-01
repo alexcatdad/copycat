@@ -3,15 +3,22 @@ import type { MockProfile } from './mock-engine';
 
 export type { MockProfile } from './mock-engine';
 
-export type OcrModel = 'janus-pro-1b' | 'florence2' | 'trocr-hybrid';
+export type OcrModel =
+  | 'trocr-hybrid'
+  | 'trocr-base'
+  | 'trocr-small-handwritten'
+  | 'trocr-base-handwritten'
+  | 'donut'
+  | 'nougat'
+  | 'mgp-str'
+  | 'paddleocr'
+  | 'tesseract-combined';
 
 export interface CreateEngineOptions {
   mockProfile?: MockProfile;
   mockResponses?: OCRResult[];
   /** Which model to use for premium/standard tiers. Default: 'trocr-hybrid'. */
   model?: OcrModel;
-  /** Optional Hugging Face token for gated/private model access. */
-  hfToken?: string;
 }
 
 export async function createEngine(
@@ -19,11 +26,6 @@ export async function createEngine(
   options: CreateEngineOptions = {},
 ): Promise<OCREngine> {
   const model = options.model ?? 'trocr-hybrid';
-
-  if (options.hfToken) {
-    const { env } = await import('@huggingface/transformers');
-    (env as any).HF_TOKEN = options.hfToken;
-  }
 
   switch (tier) {
     case 'mock': {
@@ -34,30 +36,74 @@ export async function createEngine(
       });
     }
     case 'premium': {
-      if (model === 'florence2') {
-        const { Florence2Engine } = await import('./florence2-engine');
-        return new Florence2Engine('webgpu');
+      if (model === 'donut') {
+        const { DonutEngine } = await import('./donut-engine');
+        return new DonutEngine('webgpu');
       }
-      if (model === 'janus-pro-1b') {
-        const { JanusOcrEngine } = await import('./janus-ocr-engine');
-        return new JanusOcrEngine('webgpu');
+      if (model === 'nougat') {
+        const { NougatEngine } = await import('./nougat-engine');
+        return new NougatEngine('webgpu');
+      }
+      if (model === 'mgp-str') {
+        const { MgpStrEngine } = await import('./mgp-str-engine');
+        return new MgpStrEngine('webgpu');
+      }
+      if (model === 'paddleocr') {
+        const { PaddleOcrEngine } = await import('./paddleocr-engine');
+        return new PaddleOcrEngine('webgpu');
+      }
+      if (model === 'trocr-base') {
+        const { TrOcrBaseEngine } = await import('./trocr-base-engine');
+        return new TrOcrBaseEngine('webgpu');
+      }
+      if (model === 'trocr-small-handwritten') {
+        const { TrOcrHybridEngine } = await import('./trocr-hybrid-engine');
+        return new TrOcrHybridEngine('webgpu', 'eng', 'Xenova/trocr-small-handwritten');
+      }
+      if (model === 'trocr-base-handwritten') {
+        const { TrOcrBaseEngine } = await import('./trocr-base-engine');
+        return new TrOcrBaseEngine('webgpu', 'eng', 'Xenova/trocr-base-handwritten');
       }
       const { TrOcrHybridEngine } = await import('./trocr-hybrid-engine');
       return new TrOcrHybridEngine('webgpu');
     }
     case 'standard': {
-      if (model === 'florence2') {
-        const { Florence2Engine } = await import('./florence2-engine');
-        return new Florence2Engine('wasm');
+      if (model === 'donut') {
+        const { DonutEngine } = await import('./donut-engine');
+        return new DonutEngine('wasm');
       }
-      if (model === 'janus-pro-1b') {
-        const { JanusOcrEngine } = await import('./janus-ocr-engine');
-        return new JanusOcrEngine('wasm');
+      if (model === 'nougat') {
+        const { NougatEngine } = await import('./nougat-engine');
+        return new NougatEngine('wasm');
+      }
+      if (model === 'mgp-str') {
+        const { MgpStrEngine } = await import('./mgp-str-engine');
+        return new MgpStrEngine('wasm');
+      }
+      if (model === 'paddleocr') {
+        const { PaddleOcrEngine } = await import('./paddleocr-engine');
+        return new PaddleOcrEngine('wasm');
+      }
+      if (model === 'trocr-base') {
+        const { TrOcrBaseEngine } = await import('./trocr-base-engine');
+        return new TrOcrBaseEngine('wasm');
+      }
+      if (model === 'trocr-small-handwritten') {
+        const { TrOcrHybridEngine } = await import('./trocr-hybrid-engine');
+        return new TrOcrHybridEngine('wasm', 'eng', 'Xenova/trocr-small-handwritten');
+      }
+      if (model === 'trocr-base-handwritten') {
+        const { TrOcrBaseEngine } = await import('./trocr-base-engine');
+        return new TrOcrBaseEngine('wasm', 'eng', 'Xenova/trocr-base-handwritten');
       }
       const { TrOcrHybridEngine } = await import('./trocr-hybrid-engine');
       return new TrOcrHybridEngine('wasm');
     }
     case 'basic': {
+      if (model === 'tesseract-combined') {
+        const { TesseractCombinedEngine } = await import('./tesseract-combined-engine');
+        return new TesseractCombinedEngine();
+      }
       const { TesseractEngine } = await import('./tesseract-engine');
       return new TesseractEngine();
     }

@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { preprocessImage, _testOnly } from './image-preprocessor';
 
-const { toGrayscale, adaptiveThresholdMean, computeIntegralImage, enhanceContrast, medianFilter3x3, detectSkewAngle } = _testOnly;
+const {
+  toGrayscale, adaptiveThresholdMean, computeIntegralImage, enhanceContrast,
+  medianFilter3x3, detectSkewAngle, sauvolaBinarize, otsuBinarize,
+  erode, dilate, morphologicalOpen, morphologicalClose, unsharpMaskFilter,
+} = _testOnly;
 
 describe('toGrayscale', () => {
   it('converts RGBA pixel data to grayscale luminance', () => {
@@ -207,6 +211,165 @@ describe('detectSkewAngle', () => {
     // detectSkewAngle returns the correction angle (negative of actual skew)
     const angle = detectSkewAngle(gray, width, height);
     expect(Math.abs(angle + skewDeg)).toBeLessThanOrEqual(1.5);
+  });
+});
+
+describe('sauvolaBinarize', () => {
+  it('produces binary output (0 or 255 only)', () => {
+    const gray = new Uint8Array([10, 200, 50, 180, 30, 220, 100, 150, 90]);
+    const result = sauvolaBinarize(gray, 3, 3, 3, 0.3);
+    for (const val of result) {
+      expect(val === 0 || val === 255).toBe(true);
+    }
+  });
+
+  it('handles uniform image without crashing', () => {
+    const gray = new Uint8Array(25).fill(128);
+    const result = sauvolaBinarize(gray, 5, 5, 3, 0.3);
+    expect(result).toHaveLength(25);
+  });
+
+  it('separates bimodal image into foreground and background', () => {
+    // Create image with clear dark text (50) on bright background (220)
+    const gray = new Uint8Array(25).fill(220);
+    gray[6] = 50; gray[7] = 50; gray[8] = 50;
+    gray[11] = 50; gray[12] = 50; gray[13] = 50;
+    const result = sauvolaBinarize(gray, 5, 5, 3, 0.3);
+    // Dark pixels should become 0 (black)
+    expect(result[7]).toBe(0);
+    expect(result[12]).toBe(0);
+  });
+});
+
+describe('otsuBinarize', () => {
+  it('produces binary output (0 or 255 only)', () => {
+    const gray = new Uint8Array([10, 200, 50, 180, 30, 220, 100, 150, 90]);
+    const result = otsuBinarize(gray, 3, 3);
+    for (const val of result) {
+      expect(val === 0 || val === 255).toBe(true);
+    }
+  });
+
+  it('correctly separates a bimodal distribution', () => {
+    // Half the pixels are dark (30), half are bright (220)
+    const gray = new Uint8Array(16);
+    for (let i = 0; i < 8; i++) gray[i] = 30;
+    for (let i = 8; i < 16; i++) gray[i] = 220;
+    const result = otsuBinarize(gray, 4, 4);
+    // Dark pixels should be 0
+    for (let i = 0; i < 8; i++) expect(result[i]).toBe(0);
+    // Bright pixels should be 255
+    for (let i = 8; i < 16; i++) expect(result[i]).toBe(255);
+  });
+
+  it('handles uniform image', () => {
+    const gray = new Uint8Array(9).fill(128);
+    const result = otsuBinarize(gray, 3, 3);
+    expect(result).toHaveLength(9);
+  });
+});
+
+describe('erode', () => {
+  it('shrinks bright region (removes single bright pixel)', () => {
+    const binary = new Uint8Array(9).fill(0);
+    binary[4] = 255; // Single bright pixel in center
+    const result = erode(binary, 3, 3);
+    // Single bright pixel surrounded by dark should be eroded away
+    expect(result[4]).toBe(0);
+  });
+
+  it('preserves fully bright image', () => {
+    const binary = new Uint8Array(9).fill(255);
+    const result = erode(binary, 3, 3);
+    // Center pixel should remain bright (all neighbors are bright)
+    expect(result[4]).toBe(255);
+  });
+});
+
+describe('dilate', () => {
+  it('expands bright region', () => {
+    const binary = new Uint8Array(9).fill(0);
+    binary[4] = 255; // Single bright pixel
+    const result = dilate(binary, 3, 3);
+    // All neighbors of the bright pixel should become bright
+    for (const val of result) {
+      expect(val).toBe(255);
+    }
+  });
+
+  it('preserves fully dark image', () => {
+    const binary = new Uint8Array(9).fill(0);
+    const result = dilate(binary, 3, 3);
+    for (const val of result) {
+      expect(val).toBe(0);
+    }
+  });
+});
+
+describe('morphologicalOpen', () => {
+  it('removes small bright noise (erode then dilate)', () => {
+    // Single bright pixel noise on a dark background
+    const binary = new Uint8Array(25).fill(0);
+    binary[12] = 255;
+    const result = morphologicalOpen(binary, 5, 5);
+    // The isolated bright pixel should be removed
+    expect(result[12]).toBe(0);
+  });
+
+  it('preserves larger bright structures', () => {
+    // A 3x3 block of bright pixels
+    const binary = new Uint8Array(25).fill(0);
+    binary[6] = 255; binary[7] = 255; binary[8] = 255;
+    binary[11] = 255; binary[12] = 255; binary[13] = 255;
+    binary[16] = 255; binary[17] = 255; binary[18] = 255;
+    const result = morphologicalOpen(binary, 5, 5);
+    // Center of the 3x3 block should survive
+    expect(result[12]).toBe(255);
+  });
+});
+
+describe('morphologicalClose', () => {
+  it('fills small dark gap (dilate then erode)', () => {
+    // All bright except one dark pixel in center
+    const binary = new Uint8Array(25).fill(255);
+    binary[12] = 0;
+    const result = morphologicalClose(binary, 5, 5);
+    // The isolated dark pixel should be filled
+    expect(result[12]).toBe(255);
+  });
+});
+
+describe('unsharpMaskFilter', () => {
+  it('increases edge contrast', () => {
+    // Step edge: left half dark, right half bright
+    const gray = new Uint8Array(25);
+    for (let y = 0; y < 5; y++) {
+      for (let x = 0; x < 5; x++) {
+        gray[y * 5 + x] = x < 2 ? 50 : 200;
+      }
+    }
+    const result = unsharpMaskFilter(gray, 5, 5, 1, 0.5);
+    // Edge pixel (x=2) should have higher contrast than input
+    // The dark side of the edge should be darker, bright side brighter
+    expect(result[2]).toBeGreaterThanOrEqual(gray[2]);
+    expect(result[1]).toBeLessThanOrEqual(gray[1]);
+  });
+
+  it('produces valid pixel values (0-255)', () => {
+    const gray = new Uint8Array([0, 255, 128, 64, 192, 32, 224, 96, 160]);
+    const result = unsharpMaskFilter(gray, 3, 3, 1, 1.0);
+    for (const val of result) {
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThanOrEqual(255);
+    }
+  });
+
+  it('preserves uniform regions', () => {
+    const gray = new Uint8Array(9).fill(128);
+    const result = unsharpMaskFilter(gray, 3, 3, 1, 0.5);
+    for (const val of result) {
+      expect(val).toBe(128);
+    }
   });
 });
 

@@ -30,9 +30,23 @@ export interface PreprocessOptions {
   noiseReduction?: boolean;
   /** Attempt automatic deskew correction. Default: false */
   deskew?: boolean;
+  /** Use Sauvola binarization instead of adaptive mean. Default: false */
+  sauvola?: boolean;
+  /** Sauvola k parameter (sensitivity, 0-1). Default: 0.3 */
+  sauvolaK?: number;
+  /** Apply morphological opening after binarization. Default: false */
+  morphOpen?: boolean;
+  /** Apply morphological closing after binarization. Default: false */
+  morphClose?: boolean;
+  /** Apply unsharp mask (sharpen) before binarization. Default: false */
+  sharpen?: boolean;
+  /** Sharpen amount (0-2). Default: 0.5 */
+  sharpenAmount?: number;
+  /** Use Otsu global threshold instead of adaptive. Default: false */
+  otsu?: boolean;
 }
 
-const DEFAULTS: Required<PreprocessOptions> = {
+const DEFAULTS = {
   minWidth: 1024,
   minHeight: 768,
   adaptiveThreshold: true,
@@ -41,7 +55,14 @@ const DEFAULTS: Required<PreprocessOptions> = {
   contrastEnhancement: true,
   noiseReduction: true,
   deskew: false,
-};
+  sauvola: false,
+  sauvolaK: 0.3,
+  morphOpen: false,
+  morphClose: false,
+  sharpen: false,
+  sharpenAmount: 0.5,
+  otsu: false,
+} satisfies Required<PreprocessOptions>;
 
 export interface PreprocessedImage {
   blob: Blob;
@@ -385,8 +406,238 @@ function adaptiveThresholdMean(
 }
 
 /**
+ * Sauvola binarization: adaptive threshold using local mean AND standard deviation.
+ * Better for documents with uneven illumination or gradient backgrounds.
+ * T(x,y) = mean * (1 + k * (stdev / R - 1)), where R = 128.
+ */
+function sauvolaBinarize(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  windowSize: number,
+  k: number,
+): Uint8Array {
+  const integral = computeIntegralImage(gray, width, height);
+
+  // Integral image of squared values for variance computation
+  const sq = new Uint8Array(gray.length);
+  for (let i = 0; i < gray.length; i++) {
+    sq[i] = gray[i]; // store raw for squaring below
+  }
+  const integralSq = new Float64Array(width * height);
+  for (let y = 0; y < height; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      const val = gray[idx];
+      rowSum += val * val;
+      integralSq[idx] = rowSum + (y > 0 ? integralSq[(y - 1) * width + x] : 0);
+    }
+  }
+
+  const output = new Uint8Array(gray.length);
+  const halfBlock = Math.floor(windowSize / 2);
+  const R = 128; // dynamic range of standard deviation
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const left = Math.max(0, x - halfBlock);
+      const top = Math.max(0, y - halfBlock);
+      const right = Math.min(width - 1, x + halfBlock);
+      const bottom = Math.min(height - 1, y + halfBlock);
+
+      const area = (right - left + 1) * (bottom - top + 1);
+
+      // Sum from integral image
+      let sum = integral[bottom * width + right];
+      if (left > 0) sum -= integral[bottom * width + (left - 1)];
+      if (top > 0) sum -= integral[(top - 1) * width + right];
+      if (left > 0 && top > 0) sum += integral[(top - 1) * width + (left - 1)];
+
+      // Sum of squares from squared integral image
+      let sumSq = integralSq[bottom * width + right];
+      if (left > 0) sumSq -= integralSq[bottom * width + (left - 1)];
+      if (top > 0) sumSq -= integralSq[(top - 1) * width + right];
+      if (left > 0 && top > 0) sumSq += integralSq[(top - 1) * width + (left - 1)];
+
+      const mean = sum / area;
+      const variance = Math.max(0, sumSq / area - mean * mean);
+      const stdev = Math.sqrt(variance);
+
+      const threshold = mean * (1 + k * (stdev / R - 1));
+      const idx = y * width + x;
+      output[idx] = gray[idx] > threshold ? 255 : 0;
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Otsu's binarization: automatically determines the optimal global threshold
+ * by maximizing between-class variance of the pixel intensity histogram.
+ */
+function otsuBinarize(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  // Build histogram
+  const hist = new Uint32Array(256);
+  const total = width * height;
+  for (let i = 0; i < total; i++) {
+    hist[gray[i]]++;
+  }
+
+  // Find optimal threshold by maximizing between-class variance
+  let sumTotal = 0;
+  for (let i = 0; i < 256; i++) {
+    sumTotal += i * hist[i];
+  }
+
+  let sumBackground = 0;
+  let weightBackground = 0;
+  let bestThreshold = 0;
+  let bestVariance = -1;
+
+  for (let t = 0; t < 256; t++) {
+    weightBackground += hist[t];
+    if (weightBackground === 0) continue;
+
+    const weightForeground = total - weightBackground;
+    if (weightForeground === 0) break;
+
+    sumBackground += t * hist[t];
+
+    const meanBackground = sumBackground / weightBackground;
+    const meanForeground = (sumTotal - sumBackground) / weightForeground;
+
+    const diff = meanBackground - meanForeground;
+    const betweenVariance = weightBackground * weightForeground * diff * diff;
+
+    if (betweenVariance > bestVariance) {
+      bestVariance = betweenVariance;
+      bestThreshold = t;
+    }
+  }
+
+  // Apply threshold
+  const output = new Uint8Array(gray.length);
+  for (let i = 0; i < gray.length; i++) {
+    output[i] = gray[i] > bestThreshold ? 255 : 0;
+  }
+
+  return output;
+}
+
+/**
+ * Morphological erosion with a square structuring element.
+ * Output pixel = min of neighborhood (shrinks bright regions).
+ */
+function erode(binary: Uint8Array, width: number, height: number, kernelSize = 3): Uint8Array {
+  const output = new Uint8Array(binary.length);
+  const half = Math.floor(kernelSize / 2);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let minVal = 255;
+      for (let ky = -half; ky <= half; ky++) {
+        for (let kx = -half; kx <= half; kx++) {
+          const ny = Math.max(0, Math.min(height - 1, y + ky));
+          const nx = Math.max(0, Math.min(width - 1, x + kx));
+          const val = binary[ny * width + nx];
+          if (val < minVal) minVal = val;
+        }
+      }
+      output[y * width + x] = minVal;
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Morphological dilation with a square structuring element.
+ * Output pixel = max of neighborhood (expands bright regions).
+ */
+function dilate(binary: Uint8Array, width: number, height: number, kernelSize = 3): Uint8Array {
+  const output = new Uint8Array(binary.length);
+  const half = Math.floor(kernelSize / 2);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let maxVal = 0;
+      for (let ky = -half; ky <= half; ky++) {
+        for (let kx = -half; kx <= half; kx++) {
+          const ny = Math.max(0, Math.min(height - 1, y + ky));
+          const nx = Math.max(0, Math.min(width - 1, x + kx));
+          const val = binary[ny * width + nx];
+          if (val > maxVal) maxVal = val;
+        }
+      }
+      output[y * width + x] = maxVal;
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Morphological opening: erode then dilate. Removes small bright noise.
+ */
+function morphologicalOpen(binary: Uint8Array, width: number, height: number, kernelSize = 3): Uint8Array {
+  return dilate(erode(binary, width, height, kernelSize), width, height, kernelSize);
+}
+
+/**
+ * Morphological closing: dilate then erode. Fills small dark gaps in text.
+ */
+function morphologicalClose(binary: Uint8Array, width: number, height: number, kernelSize = 3): Uint8Array {
+  return erode(dilate(binary, width, height, kernelSize), width, height, kernelSize);
+}
+
+/**
+ * Unsharp mask sharpening: enhances text edges before binarization.
+ * sharpened = original + amount * (original - blurred)
+ * Uses box blur via integral image for O(1) per-pixel performance.
+ */
+function unsharpMaskFilter(
+  gray: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+  amount: number,
+): Uint8Array {
+  const integral = computeIntegralImage(gray, width, height);
+  const output = new Uint8Array(gray.length);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const left = Math.max(0, x - radius);
+      const top = Math.max(0, y - radius);
+      const right = Math.min(width - 1, x + radius);
+      const bottom = Math.min(height - 1, y + radius);
+
+      const area = (right - left + 1) * (bottom - top + 1);
+
+      let sum = integral[bottom * width + right];
+      if (left > 0) sum -= integral[bottom * width + (left - 1)];
+      if (top > 0) sum -= integral[(top - 1) * width + right];
+      if (left > 0 && top > 0) sum += integral[(top - 1) * width + (left - 1)];
+
+      const blurred = sum / area;
+      const idx = y * width + x;
+      const sharpened = gray[idx] + amount * (gray[idx] - blurred);
+      output[idx] = Math.max(0, Math.min(255, Math.round(sharpened)));
+    }
+  }
+
+  return output;
+}
+
+/**
  * Apply the full preprocessing pipeline to an image.
- * Pipeline order: upscale → grayscale → contrast enhance → denoise → deskew → adaptive threshold
+ * Pipeline order: upscale → grayscale → contrast enhance → sharpen → denoise → deskew → binarize → morph cleanup
  */
 export async function preprocessImage(
   src: string | Blob,
@@ -416,7 +667,11 @@ export async function preprocessImage(
 
   let imageData = await loadImageData(src, targetWidth, targetHeight);
 
-  if (!opts.adaptiveThreshold && !opts.contrastEnhancement && !opts.noiseReduction && !opts.deskew) {
+  const hasAnyProcessing = opts.adaptiveThreshold || opts.contrastEnhancement
+    || opts.noiseReduction || opts.deskew || opts.sauvola || opts.otsu
+    || opts.sharpen || opts.morphOpen || opts.morphClose;
+
+  if (!hasAnyProcessing) {
     // Just return the (possibly upscaled) image without any processing
     const { canvas, ctx } = createCanvasContext(targetWidth, targetHeight);
     ctx.putImageData(imageData, 0, 0);
@@ -433,12 +688,17 @@ export async function preprocessImage(
     gray = enhanceContrast(gray, targetWidth, targetHeight);
   }
 
-  // Step 3: Noise reduction (median filter)
+  // Step 3: Unsharp mask (sharpen) — enhances text edges before binarization
+  if (opts.sharpen) {
+    gray = unsharpMaskFilter(gray, targetWidth, targetHeight, 2, opts.sharpenAmount);
+  }
+
+  // Step 4: Noise reduction (median filter)
   if (opts.noiseReduction) {
     gray = medianFilter3x3(gray, targetWidth, targetHeight);
   }
 
-  // Step 4: Deskew detection and correction
+  // Step 5: Deskew detection and correction
   if (opts.deskew) {
     const skewAngle = detectSkewAngle(gray, targetWidth, targetHeight);
     if (Math.abs(skewAngle) > 0.3) {
@@ -446,9 +706,12 @@ export async function preprocessImage(
       const rotated = await rotateImage(src, targetWidth, targetHeight, skewAngle);
       imageData = rotated.imageData;
       gray = toGrayscale(imageData.data);
-      // Re-apply contrast and denoise on the rotated image
+      // Re-apply contrast, sharpen and denoise on the rotated image
       if (opts.contrastEnhancement) {
         gray = enhanceContrast(gray, targetWidth, targetHeight);
+      }
+      if (opts.sharpen) {
+        gray = unsharpMaskFilter(gray, targetWidth, targetHeight, 2, opts.sharpenAmount);
       }
       if (opts.noiseReduction) {
         gray = medianFilter3x3(gray, targetWidth, targetHeight);
@@ -456,40 +719,34 @@ export async function preprocessImage(
     }
   }
 
-  // Step 5: Adaptive threshold (if enabled)
-  if (opts.adaptiveThreshold) {
-    const thresholded = adaptiveThresholdMean(
-      gray,
-      targetWidth,
-      targetHeight,
-      opts.blockSize,
-      opts.thresholdC,
-    );
-
-    // Write back to ImageData (B&W)
-    const outputData = new ImageData(targetWidth, targetHeight);
-    for (let i = 0; i < thresholded.length; i++) {
-      const offset = i * 4;
-      outputData.data[offset] = thresholded[i];
-      outputData.data[offset + 1] = thresholded[i];
-      outputData.data[offset + 2] = thresholded[i];
-      outputData.data[offset + 3] = 255;
-    }
-
-    const { canvas: outCanvas, ctx: outCtx } = createCanvasContext(targetWidth, targetHeight);
-    outCtx.putImageData(outputData, 0, 0);
-    const outputBlob = await canvasToBlob(outCanvas);
-    const dataUrl = await blobToDataUrl(outputBlob);
-    return { blob: outputBlob, dataUrl, width: targetWidth, height: targetHeight };
+  // Step 6: Binarization — choose one method (priority: sauvola > otsu > adaptive mean)
+  let binarized: Uint8Array | null = null;
+  if (opts.sauvola) {
+    binarized = sauvolaBinarize(gray, targetWidth, targetHeight, opts.blockSize, opts.sauvolaK);
+  } else if (opts.otsu) {
+    binarized = otsuBinarize(gray, targetWidth, targetHeight);
+  } else if (opts.adaptiveThreshold) {
+    binarized = adaptiveThresholdMean(gray, targetWidth, targetHeight, opts.blockSize, opts.thresholdC);
   }
 
-  // No thresholding — write enhanced grayscale back
+  // Step 7: Morphological cleanup (applied after binarization)
+  if (binarized) {
+    if (opts.morphOpen) {
+      binarized = morphologicalOpen(binarized, targetWidth, targetHeight);
+    }
+    if (opts.morphClose) {
+      binarized = morphologicalClose(binarized, targetWidth, targetHeight);
+    }
+  }
+
+  // Output the result
+  const finalPixels = binarized ?? gray;
   const outputData = new ImageData(targetWidth, targetHeight);
-  for (let i = 0; i < gray.length; i++) {
+  for (let i = 0; i < finalPixels.length; i++) {
     const offset = i * 4;
-    outputData.data[offset] = gray[i];
-    outputData.data[offset + 1] = gray[i];
-    outputData.data[offset + 2] = gray[i];
+    outputData.data[offset] = finalPixels[i];
+    outputData.data[offset + 1] = finalPixels[i];
+    outputData.data[offset + 2] = finalPixels[i];
     outputData.data[offset + 3] = 255;
   }
 
@@ -522,4 +779,11 @@ export const _testOnly = {
   enhanceContrast,
   medianFilter3x3,
   detectSkewAngle,
+  sauvolaBinarize,
+  otsuBinarize,
+  erode,
+  dilate,
+  morphologicalOpen,
+  morphologicalClose,
+  unsharpMaskFilter,
 };

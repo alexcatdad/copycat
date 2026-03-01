@@ -17,7 +17,9 @@
     "test:e2e:live:headed": "LIVE_OCR=1 LIVE_OCR_TIERS=standard bunx playwright test tests/e2e/live-ocr.spec.ts --workers=1 --headed",
     "cache:model:ocr": "bash scripts/cache-ocr-model.sh",
     "cache:model:got": "bash scripts/cache-ocr-model.sh",
-    "demo:ocr-comparison": "bun run scripts/generate-ocr-comparison-demo.ts"
+    "demo:ocr-comparison": "bun run scripts/generate-ocr-comparison-demo.ts",
+    "test:e2e:benchmark": "LIVE_OCR=1 bunx playwright test tests/e2e/ocr-benchmark.spec.ts --workers=1",
+    "test:e2e:benchmark:quick": "LIVE_OCR=1 BENCHMARK_FIXTURES=clean-text BENCHMARK_PREPROCESS=none,default bunx playwright test tests/e2e/ocr-benchmark.spec.ts --workers=1"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",

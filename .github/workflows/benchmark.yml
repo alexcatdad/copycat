@@ -1,0 +1,80 @@
+name: OCR Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      engines:
+        description: 'Comma-separated engine filter (empty = all 10 engines)'
+        required: false
+        type: string
+
+# Cancel in-flight runs
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Cache Playwright browsers
+        id: cache-pw
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-chromium-${{ hashFiles('package.json') }}
+          restore-keys: pw-${{ runner.os }}-chromium-
+
+      - name: Install Playwright Chromium
+        if: steps.cache-pw.outputs.cache-hit != 'true'
+        run: bunx playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.cache-pw.outputs.cache-hit == 'true'
+        run: bunx playwright install-deps chromium
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ runner.os }}-v1
+          restore-keys: hf-models-${{ runner.os }}-
+
+      - name: Run OCR benchmark (10 engines in parallel)
+        env:
+          LIVE_OCR: "1"
+          CI: "true"
+          BENCHMARK_ENGINES: ${{ inputs.engines }}
+        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=10
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: tests/results/
+          retention-days: 30

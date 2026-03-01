@@ -4,8 +4,8 @@ import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 import { inferQuality } from '../quality-score';
 import { blobToDataUrl } from '../utils/blob';
 
-const DEFAULT_MODEL_ID = 'Xenova/trocr-small-printed';
-const LINE_PADDING = 4; // pixels of padding around detected lines
+const DEFAULT_MODEL_ID = 'Xenova/trocr-base-printed';
+const LINE_PADDING = 4;
 
 interface DetectedLine {
   text: string;
@@ -18,7 +18,7 @@ interface DetectedLine {
   confidence: number;
 }
 
-export class TrOcrHybridEngine implements OCREngine {
+export class TrOcrBaseEngine implements OCREngine {
   private tesseractWorker: Awaited<ReturnType<typeof createWorker>> | null = null;
   private trOcrPipeline: any = null;
   private readonly device: 'webgpu' | 'wasm';
@@ -34,7 +34,6 @@ export class TrOcrHybridEngine implements OCREngine {
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
     onProgress?.(0);
 
-    // Configure WASM threads for TrOCR if using WASM backend
     if (this.device === 'wasm') {
       const isolated = typeof globalThis !== 'undefined' && globalThis.crossOriginIsolated === true;
       const cores = globalThis.navigator?.hardwareConcurrency ?? 1;
@@ -43,7 +42,6 @@ export class TrOcrHybridEngine implements OCREngine {
       }
     }
 
-    // Initialize Tesseract worker for text detection
     this.tesseractWorker = await createWorker(this.langs);
     await this.tesseractWorker.setParameters({
       user_defined_dpi: '300',
@@ -51,7 +49,6 @@ export class TrOcrHybridEngine implements OCREngine {
     });
     onProgress?.(0.4);
 
-    // Initialize TrOCR pipeline for text recognition
     this.trOcrPipeline = await pipeline('image-to-text', this.modelId, {
       device: this.device,
       dtype: this.device === 'webgpu' ? 'fp32' : 'q8',
@@ -64,7 +61,6 @@ export class TrOcrHybridEngine implements OCREngine {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
-    // Step 1: Use Tesseract for text line detection
     const detectedLines = await this.detectLines(image);
 
     if (detectedLines.length === 0) {
@@ -78,7 +74,6 @@ export class TrOcrHybridEngine implements OCREngine {
       };
     }
 
-    // Step 2: For each detected line, crop and run TrOCR for recognition
     const regions: OCRRegion[] = [];
     const textParts: string[] = [];
 
@@ -92,33 +87,21 @@ export class TrOcrHybridEngine implements OCREngine {
 
       let recognizedText: string;
       try {
-        const croppedDataUrl = await this.cropImageRegion(
-          image,
-          lineX,
-          lineY,
-          lineW,
-          lineH,
-        );
+        const croppedDataUrl = await this.cropImageRegion(image, lineX, lineY, lineW, lineH);
         const trOcrResult = await this.trOcrPipeline(croppedDataUrl, {
           max_new_tokens: 256,
         });
         recognizedText = trOcrResult?.[0]?.generated_text?.trim() ?? '';
       } catch {
-        // Fall back to Tesseract's text for this line
         recognizedText = line.text;
       }
 
-      // Use TrOCR text if it produced output, otherwise fall back to Tesseract
       const finalText = recognizedText || line.text;
 
       if (finalText.trim()) {
-        // Create word-level regions using Tesseract bounding boxes
-        // but line-level text from TrOCR
         if (line.words.length > 1) {
-          // Distribute TrOCR text across Tesseract word bounding boxes
           const trOcrWords = finalText.split(/\s+/).filter(Boolean);
           if (trOcrWords.length === line.words.length) {
-            // Word counts match - map TrOCR words to Tesseract bboxes
             for (let i = 0; i < line.words.length; i++) {
               const word = line.words[i];
               regions.push({
@@ -133,7 +116,6 @@ export class TrOcrHybridEngine implements OCREngine {
               });
             }
           } else {
-            // Word counts differ - use line-level bbox with full text
             regions.push({
               text: finalText,
               bbox: [lineX, lineY, lineW, lineH],
@@ -180,8 +162,6 @@ export class TrOcrHybridEngine implements OCREngine {
     });
 
     const lines: DetectedLine[] = [];
-
-    // Tesseract returns: blocks → paragraphs → lines → words
     const blocks = (data as any).blocks ?? [];
     for (const block of blocks) {
       for (const paragraph of block.paragraphs ?? []) {
@@ -221,17 +201,14 @@ export class TrOcrHybridEngine implements OCREngine {
     w: number,
     h: number,
   ): Promise<string> {
-    // Apply padding
     const px = Math.max(0, x - LINE_PADDING);
     const py = Math.max(0, y - LINE_PADDING);
     const pw = Math.min(image.width - px, w + LINE_PADDING * 2);
     const ph = Math.min(image.height - py, h + LINE_PADDING * 2);
 
-    // Load the source image
     const blob = image.blob ?? await (await fetch(image.src)).blob();
     const bitmap = await createImageBitmap(blob);
 
-    // Create canvas and crop
     let canvas: OffscreenCanvas | HTMLCanvasElement;
     let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -248,12 +225,10 @@ export class TrOcrHybridEngine implements OCREngine {
     ctx.drawImage(bitmap, px, py, pw, ph, 0, 0, pw, ph);
     bitmap.close();
 
-    // Convert to data URL
     if (canvas instanceof OffscreenCanvas) {
       const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
       return await blobToDataUrl(croppedBlob);
     }
     return canvas.toDataURL('image/png');
   }
-
 }
