@@ -23,7 +23,9 @@ export class JanusOcrEngine implements OCREngine {
     if (this.device === 'wasm') {
       const isolated = typeof globalThis !== 'undefined' && globalThis.crossOriginIsolated === true;
       const cores = globalThis.navigator?.hardwareConcurrency ?? 1;
-      env.backends.onnx.wasm.numThreads = isolated ? Math.max(1, Math.min(4, cores)) : 1;
+      if (env.backends.onnx.wasm) {
+        env.backends.onnx.wasm.numThreads = isolated ? Math.max(1, Math.min(4, cores)) : 1;
+      }
     }
 
     // Avoid q4/webgpu runtime incompatibilities and fp16-first variants on some setups.

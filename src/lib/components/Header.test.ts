@@ -10,7 +10,7 @@ describe('Header', () => {
 
   it('shows the engine tier badge', () => {
     render(Header, { props: { tier: 'premium' } });
-    expect(screen.getByText(/GPU Accelerated/i)).toBeInTheDocument();
+    expect(screen.getByText(/Premium OCR/i)).toBeInTheDocument();
   });
 
   it('renders language switcher buttons', () => {

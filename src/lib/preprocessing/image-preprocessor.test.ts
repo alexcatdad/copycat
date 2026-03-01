@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { preprocessImage, _testOnly } from './image-preprocessor';
 
-const { toGrayscale, adaptiveThresholdMean, computeIntegralImage } = _testOnly;
+const { toGrayscale, adaptiveThresholdMean, computeIntegralImage, enhanceContrast, medianFilter3x3, detectSkewAngle } = _testOnly;
 
 describe('toGrayscale', () => {
   it('converts RGBA pixel data to grayscale luminance', () => {
@@ -102,6 +102,111 @@ describe('adaptiveThresholdMean', () => {
     // The center pixel should be black in both since it's far below the mean
     expect(smallBlock[4 * size + 4]).toBe(0);
     expect(largeBlock[4 * size + 4]).toBe(0);
+  });
+});
+
+describe('enhanceContrast', () => {
+  it('produces output of same length as input', () => {
+    const gray = new Uint8Array(100).fill(128);
+    const result = enhanceContrast(gray, 10, 10);
+    expect(result).toHaveLength(100);
+  });
+
+  it('enhances low-contrast image', () => {
+    // Create a narrow-range image (values between 100-110)
+    const gray = new Uint8Array(64);
+    for (let i = 0; i < 64; i++) {
+      gray[i] = 100 + (i % 11);
+    }
+    const result = enhanceContrast(gray, 8, 8);
+    // Output should have wider range than input
+    const minOut = Math.min(...result);
+    const maxOut = Math.max(...result);
+    const minIn = Math.min(...gray);
+    const maxIn = Math.max(...gray);
+    expect(maxOut - minOut).toBeGreaterThanOrEqual(maxIn - minIn);
+  });
+
+  it('produces valid pixel values (0-255)', () => {
+    const gray = new Uint8Array([0, 50, 100, 150, 200, 255, 30, 80, 120, 170, 210, 240, 10, 60, 90, 180]);
+    const result = enhanceContrast(gray, 4, 4);
+    for (const val of result) {
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThanOrEqual(255);
+    }
+  });
+});
+
+describe('medianFilter3x3', () => {
+  it('removes salt noise (single bright outlier)', () => {
+    const gray = new Uint8Array(9).fill(50);
+    gray[4] = 255; // Salt noise in center
+    const result = medianFilter3x3(gray, 3, 3);
+    // Median of 8 values of 50 + 1 value of 255 should be 50
+    expect(result[4]).toBe(50);
+  });
+
+  it('removes pepper noise (single dark outlier)', () => {
+    const gray = new Uint8Array(9).fill(200);
+    gray[4] = 0; // Pepper noise in center
+    const result = medianFilter3x3(gray, 3, 3);
+    expect(result[4]).toBe(200);
+  });
+
+  it('preserves uniform regions', () => {
+    const gray = new Uint8Array(9).fill(128);
+    const result = medianFilter3x3(gray, 3, 3);
+    for (const val of result) {
+      expect(val).toBe(128);
+    }
+  });
+
+  it('produces output of same size as input', () => {
+    const gray = new Uint8Array(25);
+    for (let i = 0; i < 25; i++) gray[i] = i * 10;
+    const result = medianFilter3x3(gray, 5, 5);
+    expect(result).toHaveLength(25);
+  });
+});
+
+describe('detectSkewAngle', () => {
+  it('returns approximately 0 for horizontal lines', () => {
+    // Use a realistic-size image with clear horizontal text-like lines
+    const width = 200;
+    const height = 200;
+    const gray = new Uint8Array(width * height).fill(255);
+    // Draw thick horizontal dark lines (3px tall to simulate text)
+    for (const baseY of [40, 80, 120, 160]) {
+      for (let dy = 0; dy < 3; dy++) {
+        for (let x = 20; x < 180; x++) {
+          gray[(baseY + dy) * width + x] = 0;
+        }
+      }
+    }
+    const angle = detectSkewAngle(gray, width, height);
+    expect(Math.abs(angle)).toBeLessThanOrEqual(1);
+  });
+
+  it('detects a known skew angle', () => {
+    const width = 200;
+    const height = 200;
+    const gray = new Uint8Array(width * height).fill(255);
+    // Draw thick lines rotated by ~2 degrees
+    const skewDeg = 2;
+    const skewRad = (skewDeg * Math.PI) / 180;
+    for (const baseY of [50, 90, 130, 170]) {
+      for (let dy = 0; dy < 3; dy++) {
+        for (let x = 20; x < 180; x++) {
+          const y = Math.round(baseY + dy + (x - 100) * Math.tan(skewRad));
+          if (y >= 0 && y < height) {
+            gray[y * width + x] = 0;
+          }
+        }
+      }
+    }
+    // detectSkewAngle returns the correction angle (negative of actual skew)
+    const angle = detectSkewAngle(gray, width, height);
+    expect(Math.abs(angle + skewDeg)).toBeLessThanOrEqual(1.5);
   });
 });
 

@@ -3,6 +3,7 @@ import {
   AutoProcessor,
   AutoTokenizer,
   RawImage,
+  env,
 } from '@huggingface/transformers';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 import { inferQuality } from '../quality-score';
@@ -28,6 +29,15 @@ export class Florence2Engine implements OCREngine {
 
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
     onProgress?.(0);
+
+    // Configure WASM thread count for multi-threaded inference
+    if (this.device === 'wasm') {
+      const isolated = typeof globalThis !== 'undefined' && globalThis.crossOriginIsolated === true;
+      const cores = globalThis.navigator?.hardwareConcurrency ?? 1;
+      if (env.backends.onnx.wasm) {
+        env.backends.onnx.wasm.numThreads = isolated ? Math.max(1, Math.min(4, cores)) : 1;
+      }
+    }
 
     const dtypeCandidates: FlorenceDtypeConfig[] = this.device === 'webgpu'
       ? [
@@ -71,32 +81,42 @@ export class Florence2Engine implements OCREngine {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
-    const rawImage = await RawImage.fromURL(image.src);
-    const visionInputs = await this.processor(rawImage);
-    const task = '<OCR_WITH_REGION>';
-    const prompts = this.processor.construct_prompts(task);
-    const textInputs = this.tokenizer(prompts);
+    let generatedIds: any = null;
+    let visionInputs: any = null;
+    try {
+      const rawImage = await RawImage.fromURL(image.src);
+      visionInputs = await this.processor(rawImage);
+      const task = '<OCR_WITH_REGION>';
+      const prompts = this.processor.construct_prompts(task);
+      const textInputs = this.tokenizer(prompts);
 
-    const generatedIds = await this.model.generate({
-      ...textInputs,
-      ...visionInputs,
-      max_new_tokens: 2048,
-    });
+      generatedIds = await this.model.generate({
+        ...textInputs,
+        ...visionInputs,
+        max_new_tokens: 4096,
+      });
 
-    const generatedText = this.tokenizer.batch_decode(generatedIds, {
-      skip_special_tokens: false,
-    })[0];
+      const generatedText = this.tokenizer.batch_decode(generatedIds, {
+        skip_special_tokens: false,
+      })[0];
 
-    const result = this.processor.post_process_generation(
-      generatedText,
-      task,
-      rawImage.size,
-    );
+      const result = this.processor.post_process_generation(
+        generatedText,
+        task,
+        rawImage.size,
+      );
 
-    return this.parseFlorence2Result(result);
+      return this.parseFlorence2Result(result);
+    } finally {
+      // Dispose intermediate GPU tensors to prevent memory leaks
+      generatedIds?.dispose?.();
+      visionInputs?.pixel_values?.dispose?.();
+    }
   }
 
   async dispose(): Promise<void> {
+    await this.model?.dispose?.();
+    await this.processor?.dispose?.();
     this.model = null;
     this.processor = null;
     this.tokenizer = null;
@@ -140,7 +160,7 @@ export class Florence2Engine implements OCREngine {
     }
 
     const text = labels.join(' ');
-    const quality = inferQuality(text, 'ocr');
+    const quality = inferQuality(text, 'ocr', undefined, regions);
     return {
       text,
       regions,
