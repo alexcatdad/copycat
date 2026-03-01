@@ -18,8 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    permissions:
-      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     steps:
       - uses: actions/checkout@v4
@@ -64,14 +66,82 @@ jobs:
           key: hf-models-${{ runner.os }}-v1
           restore-keys: hf-models-${{ runner.os }}-
 
-      - name: Run OCR benchmark (10 engines in parallel)
+      - name: Run OCR benchmark (shard ${{ matrix.shard }}/10)
         env:
           LIVE_OCR: "1"
           CI: "true"
           BENCHMARK_ENGINES: ${{ inputs.engines }}
-        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=10
+          BENCHMARK_SHARD: ${{ matrix.shard }}
+          BENCHMARK_TOTAL_SHARDS: 10
+        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=1 --grep "benchmark:"
 
-      - name: Upload benchmark results
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-shard-${{ matrix.shard }}
+          path: tests/results/
+          retention-days: 30
+
+  aggregate:
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: always()
+    timeout-minutes: 10
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Cache Playwright browsers
+        id: cache-pw
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-chromium-${{ hashFiles('package.json') }}
+          restore-keys: pw-${{ runner.os }}-chromium-
+
+      - name: Install Playwright Chromium
+        if: steps.cache-pw.outputs.cache-hit != 'true'
+        run: bunx playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.cache-pw.outputs.cache-hit == 'true'
+        run: bunx playwright install-deps chromium
+
+      - name: Download all shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-shard-*
+          path: tests/results/
+          merge-multiple: true
+
+      - name: Run aggregation report
+        env:
+          LIVE_OCR: "1"
+          CI: "true"
+        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --grep "aggregate"
+
+      - name: Upload final benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
