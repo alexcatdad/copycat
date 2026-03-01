@@ -22,7 +22,7 @@ export async function createEngine(
 
   if (options.hfToken) {
     const { env } = await import('@huggingface/transformers');
-    env.HF_TOKEN = options.hfToken;
+    (env as any).HF_TOKEN = options.hfToken;
   }
 
   switch (tier) {

@@ -359,7 +359,7 @@
         currentResult = result;
       };
 
-      let processed: Array<OCRResult | null>;
+      let processed: Array<OCRResult | null> = [];
       if (pageIndicesForOcr.length > 0) {
         try {
           processed = await processPipeline(activeEngine, parsedPages, {
