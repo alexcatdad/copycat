@@ -447,6 +447,39 @@ test.describe('OCR Engine Benchmark', () => {
     await writeFile(resultsPath, JSON.stringify(output, null, 2));
     console.log(`\nResults saved to: ${resultsPath}`);
 
+    // Write markdown summary for CI comment
+    const mdLines: string[] = [
+      '## OCR Benchmark Results',
+      '',
+      `**${BENCHMARK_ENGINES.length}** engines x **${BENCHMARK_FIXTURES.length}** fixtures x **${BENCHMARK_PREPROCESS.length}** preprocessing configs = **${total}** combinations`,
+      '',
+      '### Results',
+      '',
+      '| Engine | Fixture | Preprocess | CER | WER | Char Acc | Word Acc | Time |',
+      '|--------|---------|------------|-----|-----|----------|----------|------|',
+    ];
+    for (const r of allResults) {
+      const err = r.extractedText.startsWith('ERROR');
+      mdLines.push(
+        `| ${r.engine} | ${r.fixture} | ${r.preprocess} | ${err ? 'ERR' : r.metrics.charErrorRate.toFixed(4)} | ${err ? 'ERR' : r.metrics.wordErrorRate.toFixed(4)} | ${err ? 'ERR' : (r.metrics.charAccuracy * 100).toFixed(1) + '%'} | ${err ? 'ERR' : (r.metrics.wordAccuracy * 100).toFixed(1) + '%'} | ${err ? '-' : (r.elapsedMs / 1000).toFixed(1) + 's'} |`,
+      );
+    }
+    mdLines.push('', '### Best Engine Per Fixture', '');
+    for (const fixture of BENCHMARK_FIXTURES) {
+      const fixtureResults = allResults
+        .filter((r) => r.fixture === fixture.name && !r.extractedText.startsWith('ERROR'))
+        .sort((a, b) => a.metrics.charErrorRate - b.metrics.charErrorRate);
+      if (fixtureResults.length > 0) {
+        const best = fixtureResults[0];
+        mdLines.push(
+          `- **${fixture.name}**: ${best.engine} + ${best.preprocess} (CER=${best.metrics.charErrorRate.toFixed(4)}, Word Acc=${(best.metrics.wordAccuracy * 100).toFixed(1)}%)`,
+        );
+      }
+    }
+    mdLines.push('');
+    const mdPath = path.join(resultsDir, 'benchmark-results.md');
+    await writeFile(mdPath, mdLines.join('\n'));
+
     // Basic sanity: at least one engine should produce something
     const successfulResults = allResults.filter(
       (r) => !r.extractedText.startsWith('ERROR') && r.extractedText.length > 0,
