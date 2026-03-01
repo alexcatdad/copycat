@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateDocx, _testOnly } from './docx-generator';
 import type { OCRResult, OCRRegion, PageImage } from '../types';
 
-const { groupIntoLines, classifyLines, computeGlobalMedianHeight } = _testOnly;
+const { groupIntoLines, classifyLines, computeGlobalMedianHeight, validateTableAlignment, mergeConsecutiveBody } = _testOnly;
 
 const mockPages: PageImage[] = [
   { id: 'p1', src: 'blob:p1', blob: new Blob(['p1'], { type: 'image/png' }), width: 800, height: 1200, pageNumber: 1, sourceKind: 'image' },
@@ -229,5 +229,94 @@ describe('generateDocx with structured content', () => {
     const blob = await generateDocx(results, mockPages);
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(0);
+  });
+});
+
+describe('validateTableAlignment', () => {
+  it('keeps well-aligned table rows as table-row kind', () => {
+    const classified = [
+      { kind: 'table-row' as const, regions: [
+        { text: 'Name', bbox: [20, 50, 120, 20] as [number, number, number, number] },
+        { text: 'Qty', bbox: [300, 50, 60, 20] as [number, number, number, number] },
+        { text: 'Price', bbox: [550, 50, 80, 20] as [number, number, number, number] },
+      ], medianHeight: 20, leftEdge: 20, text: 'Name Qty Price' },
+      { kind: 'table-row' as const, regions: [
+        { text: 'Widget', bbox: [20, 80, 120, 20] as [number, number, number, number] },
+        { text: '5', bbox: [300, 80, 60, 20] as [number, number, number, number] },
+        { text: '$10', bbox: [550, 80, 80, 20] as [number, number, number, number] },
+      ], medianHeight: 20, leftEdge: 20, text: 'Widget 5 $10' },
+    ];
+
+    const result = validateTableAlignment(classified);
+    expect(result.every((r) => r.kind === 'table-row')).toBe(true);
+  });
+
+  it('reclassifies poorly-aligned rows as body', () => {
+    const classified = [
+      { kind: 'table-row' as const, regions: [
+        { text: 'A', bbox: [20, 50, 120, 20] as [number, number, number, number] },
+        { text: 'B', bbox: [300, 50, 60, 20] as [number, number, number, number] },
+        { text: 'C', bbox: [550, 50, 80, 20] as [number, number, number, number] },
+      ], medianHeight: 20, leftEdge: 20, text: 'A B C' },
+      { kind: 'table-row' as const, regions: [
+        { text: 'X', bbox: [100, 80, 120, 20] as [number, number, number, number] },
+        { text: 'Y', bbox: [450, 80, 60, 20] as [number, number, number, number] },
+        { text: 'Z', bbox: [700, 80, 80, 20] as [number, number, number, number] },
+      ], medianHeight: 20, leftEdge: 100, text: 'X Y Z' },
+    ];
+
+    const result = validateTableAlignment(classified);
+    expect(result.every((r) => r.kind === 'body')).toBe(true);
+  });
+
+  it('reclassifies single table rows as body', () => {
+    const classified = [
+      { kind: 'table-row' as const, regions: [
+        { text: 'A', bbox: [20, 50, 120, 20] as [number, number, number, number] },
+        { text: 'B', bbox: [300, 50, 60, 20] as [number, number, number, number] },
+        { text: 'C', bbox: [550, 50, 80, 20] as [number, number, number, number] },
+      ], medianHeight: 20, leftEdge: 20, text: 'A B C' },
+    ];
+
+    const result = validateTableAlignment(classified);
+    expect(result[0].kind).toBe('body');
+  });
+});
+
+describe('mergeConsecutiveBody', () => {
+  it('merges consecutive body lines with similar indentation', () => {
+    const classified = [
+      { kind: 'body' as const, regions: [{ text: 'Line 1 text', bbox: [50, 100, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 50, text: 'Line 1 text' },
+      { kind: 'body' as const, regions: [{ text: 'Line 2 text', bbox: [50, 130, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 50, text: 'Line 2 text' },
+      { kind: 'body' as const, regions: [{ text: 'Line 3 text', bbox: [52, 160, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 52, text: 'Line 3 text' },
+    ];
+
+    const result = mergeConsecutiveBody(classified);
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe('Line 1 text Line 2 text Line 3 text');
+  });
+
+  it('does not merge lines with different indentation', () => {
+    const classified = [
+      { kind: 'body' as const, regions: [{ text: 'Normal', bbox: [50, 100, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 50, text: 'Normal' },
+      { kind: 'body' as const, regions: [{ text: 'Indented', bbox: [150, 130, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 150, text: 'Indented' },
+    ];
+
+    const result = mergeConsecutiveBody(classified);
+    expect(result).toHaveLength(2);
+  });
+
+  it('preserves non-body items between body groups', () => {
+    const classified = [
+      { kind: 'body' as const, regions: [{ text: 'Para 1', bbox: [50, 100, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 50, text: 'Para 1' },
+      { kind: 'heading' as const, regions: [{ text: 'Title', bbox: [50, 160, 400, 40] as [number, number, number, number] }], medianHeight: 40, leftEdge: 50, text: 'Title' },
+      { kind: 'body' as const, regions: [{ text: 'Para 2', bbox: [50, 220, 400, 20] as [number, number, number, number] }], medianHeight: 20, leftEdge: 50, text: 'Para 2' },
+    ];
+
+    const result = mergeConsecutiveBody(classified);
+    expect(result).toHaveLength(3);
+    expect(result[0].kind).toBe('body');
+    expect(result[1].kind).toBe('heading');
+    expect(result[2].kind).toBe('body');
   });
 });

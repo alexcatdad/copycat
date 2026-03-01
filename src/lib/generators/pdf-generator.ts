@@ -51,7 +51,9 @@ export async function generateSearchablePdf(
       continue;
     }
 
-    const lines = groupRegionsIntoLines(result.regions);
+    // Detect columns and sort regions in reading order
+    const columnsOrdered = orderByColumns(result.regions, pageImage.width);
+    const lines = groupRegionsIntoLines(columnsOrdered);
     for (const line of lines) {
       for (const region of line) {
         drawInvisibleRegionText(page, pageImage, font, region);
@@ -125,16 +127,85 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/**
+ * Detect multi-column layout and sort regions in reading order
+ * (column-by-column, left-to-right, top-to-bottom within each column).
+ */
+function orderByColumns(regions: OCRRegion[], pageWidth: number): OCRRegion[] {
+  const valid = regions.filter((r) => r.text.trim().length > 0);
+  if (valid.length < 4) return valid;
+
+  // Collect left-edge X positions
+  const leftEdges = valid.map((r) => r.bbox[0]).sort((a, b) => a - b);
+
+  // Look for large horizontal gaps (>25% of page width)
+  const gapThreshold = pageWidth * 0.25;
+  const columnBoundaries: number[] = [0];
+
+  for (let i = 1; i < leftEdges.length; i++) {
+    if (leftEdges[i] - leftEdges[i - 1] > gapThreshold) {
+      columnBoundaries.push((leftEdges[i] + leftEdges[i - 1]) / 2);
+    }
+  }
+  columnBoundaries.push(pageWidth);
+
+  if (columnBoundaries.length <= 2) {
+    // Single column - no reordering needed
+    return valid;
+  }
+
+  // Assign each region to a column
+  const columns: OCRRegion[][] = Array.from(
+    { length: columnBoundaries.length - 1 },
+    () => [],
+  );
+
+  for (const region of valid) {
+    const centerX = region.bbox[0] + region.bbox[2] / 2;
+    for (let c = 0; c < columns.length; c++) {
+      if (centerX >= columnBoundaries[c] && centerX < columnBoundaries[c + 1]) {
+        columns[c].push(region);
+        break;
+      }
+    }
+  }
+
+  // Sort each column top-to-bottom, then concatenate columns left-to-right
+  const ordered: OCRRegion[] = [];
+  for (const col of columns) {
+    col.sort((a, b) => a.bbox[1] - b.bbox[1]);
+    ordered.push(...col);
+  }
+
+  return ordered;
+}
+
+/**
+ * Compute median line height across all regions for adaptive grouping threshold.
+ */
+function computeMedianHeight(regions: OCRRegion[]): number {
+  const heights = regions
+    .filter((r) => r.bbox[3] > 0)
+    .map((r) => r.bbox[3])
+    .sort((a, b) => a - b);
+  if (heights.length === 0) return 20;
+  return heights[Math.floor(heights.length / 2)];
+}
+
 function groupRegionsIntoLines(regions: OCRRegion[]): OCRRegion[][] {
   if (regions.length === 0) {
     return [];
   }
 
+  const medianHeight = computeMedianHeight(regions);
+  // Use median-based threshold for adaptive line grouping
+  const groupingThreshold = medianHeight * 0.4;
+
   const sorted = [...regions]
     .filter((region) => region.text.trim().length > 0)
     .sort((a, b) => {
       const yDiff = a.bbox[1] - b.bbox[1];
-      if (Math.abs(yDiff) > 10) {
+      if (Math.abs(yDiff) > groupingThreshold) {
         return yDiff;
       }
       return a.bbox[0] - b.bbox[0];
@@ -150,8 +221,7 @@ function groupRegionsIntoLines(regions: OCRRegion[]): OCRRegion[][] {
     }
 
     const reference = current[0];
-    const threshold = Math.max(reference.bbox[3], region.bbox[3]) * 0.55;
-    if (Math.abs(region.bbox[1] - reference.bbox[1]) <= threshold) {
+    if (Math.abs(region.bbox[1] - reference.bbox[1]) <= groupingThreshold) {
       current.push(region);
       current.sort((a, b) => a.bbox[0] - b.bbox[0]);
     } else {
@@ -184,32 +254,42 @@ function fitFontSize(font: PDFFont, text: string, boxWidth: number, boxHeight: n
 }
 
 /**
- * Compute extra per-character spacing so the rendered text width exactly
- * matches the OCR bounding box width. This prevents the "drifting" selection
- * problem where the blue highlight doesn't align with the visual text.
- *
- * characterSpacing = (boxWidth - naturalWidth) / max(charCount - 1, 1)
+ * Compute extra per-word spacing so the rendered text width exactly
+ * matches the OCR bounding box width. Distributes excess space between
+ * words rather than characters for more natural text selection.
+ * Falls back to character spacing when there are no spaces.
  */
-function computeCharacterSpacing(
+function computeSpacing(
   font: PDFFont,
   text: string,
   fontSize: number,
   boxWidth: number,
-): number {
+): { wordSpacing: number; characterSpacing: number } {
   const naturalWidth = font.widthOfTextAtSize(text, fontSize);
-  const charCount = text.length;
 
-  if (charCount <= 1 || naturalWidth >= boxWidth) {
-    return 0;
+  if (naturalWidth >= boxWidth) {
+    return { wordSpacing: 0, characterSpacing: 0 };
   }
 
   const extra = boxWidth - naturalWidth;
-  return extra / (charCount - 1);
+  const spaceCount = (text.match(/ /g) || []).length;
+
+  if (spaceCount > 0) {
+    // Distribute excess width between words
+    return { wordSpacing: extra / spaceCount, characterSpacing: 0 };
+  }
+
+  // No spaces — fall back to character spacing
+  const charCount = text.length;
+  if (charCount <= 1) {
+    return { wordSpacing: 0, characterSpacing: 0 };
+  }
+  return { wordSpacing: 0, characterSpacing: extra / (charCount - 1) };
 }
 
 /**
  * Draw invisible (opacity=0) text at the precise bounding box position.
- * Uses character spacing to stretch the text to match the visual width,
+ * Uses word spacing to stretch the text to match the visual width,
  * and transforms coordinates from top-left origin (browser/OCR) to
  * bottom-left origin (PDF).
  */
@@ -241,7 +321,7 @@ function drawInvisibleRegionText(
     return;
   }
 
-  const charSpacing = computeCharacterSpacing(font, text, fontSize, w);
+  const { wordSpacing, characterSpacing } = computeSpacing(font, text, fontSize, w);
 
   try {
     const drawOptions: Record<string, any> = {
@@ -253,9 +333,12 @@ function drawInvisibleRegionText(
       opacity: 0,
     };
 
-    // Only set characterSpacing when it meaningfully adjusts width
-    if (charSpacing > 0.01) {
-      drawOptions.characterSpacing = charSpacing;
+    // Only set spacing when it meaningfully adjusts width
+    if (wordSpacing > 0.01) {
+      drawOptions.wordSpacing = wordSpacing;
+    }
+    if (characterSpacing > 0.01) {
+      drawOptions.characterSpacing = characterSpacing;
     }
 
     page.drawText(text, drawOptions);

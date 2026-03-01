@@ -1,6 +1,7 @@
 export interface OCRRegion {
   text: string;
   bbox: [number, number, number, number]; // [x, y, width, height]
+  confidence?: number;
 }
 
 export type OCRSource = 'ocr' | 'pdf-text';

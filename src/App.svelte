@@ -38,7 +38,7 @@
   let engine: OCREngine | null = null;
   let useMockEngine = $state(false);
   let mockProfile = $state<MockProfile>('default');
-  let ocrModel = $state<OcrModel>('janus-pro-1b');
+  let ocrModel = $state<OcrModel>('trocr-hybrid');
   let hfToken = $state<string | undefined>(undefined);
   let strictEngineSelection = $state(false);
   let forceOcrForPdf = $state(false);
@@ -56,7 +56,7 @@
   }
 
   function isOcrModel(value: string | null): value is OcrModel {
-    return value === 'janus-pro-1b' || value === 'florence2';
+    return value === 'janus-pro-1b' || value === 'florence2' || value === 'trocr-hybrid';
   }
 
   function revokePages(items: PageImage[]) {

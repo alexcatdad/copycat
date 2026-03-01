@@ -83,7 +83,9 @@ function buildSection(
   const lines = groupIntoLines(result.regions);
   const globalMedianHeight = computeGlobalMedianHeight(lines);
   const classified = classifyLines(lines, page, globalMedianHeight);
-  const children = renderBlocks(classified, page, globalMedianHeight);
+  const validated = validateTableAlignment(classified);
+  const merged = mergeConsecutiveBody(validated);
+  const children = renderBlocks(merged, page, globalMedianHeight);
 
   return {
     properties: { type: SectionType.NEXT_PAGE },
@@ -97,9 +99,14 @@ function groupIntoLines(regions: OCRRegion[]): OCRRegion[][] {
   const valid = regions.filter((r) => r.text.trim().length > 0);
   if (valid.length === 0) return [];
 
+  // Compute median height for adaptive grouping threshold
+  const heights = valid.map((r) => r.bbox[3]).sort((a, b) => a - b);
+  const medianHeight = heights[Math.floor(heights.length / 2)] ?? 20;
+  const groupingThreshold = medianHeight * 0.4;
+
   const sorted = [...valid].sort((a, b) => {
     const yDiff = a.bbox[1] - b.bbox[1];
-    if (Math.abs(yDiff) > Math.max(a.bbox[3], b.bbox[3]) * 0.55) return yDiff;
+    if (Math.abs(yDiff) > groupingThreshold) return yDiff;
     return a.bbox[0] - b.bbox[0];
   });
 
@@ -111,9 +118,8 @@ function groupIntoLines(regions: OCRRegion[]): OCRRegion[][] {
     const currentYValues = current.map((r) => r.bbox[1]).sort((a, b) => a - b);
     const medianY = currentYValues[Math.floor(currentYValues.length / 2)];
     const region = sorted[i];
-    const threshold = Math.max(current[0].bbox[3], region.bbox[3]) * 0.55;
 
-    if (Math.abs(region.bbox[1] - medianY) <= threshold) {
+    if (Math.abs(region.bbox[1] - medianY) <= groupingThreshold) {
       current.push(region);
       current.sort((a, b) => a.bbox[0] - b.bbox[0]);
     } else {
@@ -185,6 +191,134 @@ function classifyLines(
 
     return { kind: 'body' as const, regions, medianHeight, leftEdge, text };
   });
+}
+
+// ── Table alignment validation ────────────────────────────────────────────────
+
+/**
+ * Verify that consecutive table rows have aligned columns.
+ * If region X-positions don't align across rows (within 15px tolerance),
+ * reclassify as body text.
+ */
+function validateTableAlignment(classified: ClassifiedLine[]): ClassifiedLine[] {
+  const result: ClassifiedLine[] = [];
+  let i = 0;
+
+  while (i < classified.length) {
+    if (classified[i].kind !== 'table-row') {
+      result.push(classified[i]);
+      i++;
+      continue;
+    }
+
+    // Collect consecutive table rows
+    const tableGroup: ClassifiedLine[] = [];
+    while (i < classified.length && classified[i].kind === 'table-row') {
+      tableGroup.push(classified[i]);
+      i++;
+    }
+
+    if (tableGroup.length < 2) {
+      // Single table row — reclassify as body
+      for (const row of tableGroup) {
+        result.push({ ...row, kind: 'body' });
+      }
+      continue;
+    }
+
+    // Check column alignment across rows
+    const alignmentTolerance = 15;
+    let alignedCount = 0;
+    let totalChecks = 0;
+
+    for (let r = 1; r < tableGroup.length; r++) {
+      const prevRow = tableGroup[r - 1];
+      const currRow = tableGroup[r];
+      const checkCount = Math.min(prevRow.regions.length, currRow.regions.length);
+
+      for (let c = 0; c < checkCount; c++) {
+        totalChecks++;
+        if (Math.abs(prevRow.regions[c].bbox[0] - currRow.regions[c].bbox[0]) <= alignmentTolerance) {
+          alignedCount++;
+        }
+      }
+    }
+
+    const alignmentScore = totalChecks > 0 ? alignedCount / totalChecks : 0;
+
+    if (alignmentScore >= 0.5) {
+      // Good alignment — keep as table
+      result.push(...tableGroup);
+    } else {
+      // Poor alignment — reclassify as body
+      for (const row of tableGroup) {
+        result.push({ ...row, kind: 'body' });
+      }
+    }
+  }
+
+  return result;
+}
+
+// ── Paragraph merging ─────────────────────────────────────────────────────────
+
+/**
+ * Merge consecutive body lines with similar left-edge indentation and font size
+ * into single paragraph blocks for more natural document flow.
+ */
+function mergeConsecutiveBody(classified: ClassifiedLine[]): ClassifiedLine[] {
+  const merged: ClassifiedLine[] = [];
+  let i = 0;
+
+  while (i < classified.length) {
+    if (classified[i].kind !== 'body') {
+      merged.push(classified[i]);
+      i++;
+      continue;
+    }
+
+    // Start a paragraph group
+    const group: ClassifiedLine[] = [classified[i]];
+    i++;
+
+    while (i < classified.length && classified[i].kind === 'body') {
+      const prev = group[group.length - 1];
+      const curr = classified[i];
+
+      // Check if this line should merge into the current paragraph:
+      // 1. Similar left-edge indentation (within 10px)
+      // 2. Similar median height (within 20%)
+      const leftDiff = Math.abs(curr.leftEdge - prev.leftEdge);
+      const heightRatio = prev.medianHeight > 0
+        ? curr.medianHeight / prev.medianHeight
+        : 1;
+
+      if (leftDiff <= 10 && heightRatio >= 0.8 && heightRatio <= 1.2) {
+        group.push(curr);
+        i++;
+      } else {
+        break;
+      }
+    }
+
+    if (group.length === 1) {
+      merged.push(group[0]);
+    } else {
+      // Merge the group into a single classified line
+      const allRegions = group.flatMap((g) => g.regions);
+      const allText = group.map((g) => g.text).join(' ');
+      const heights = group.map((g) => g.medianHeight).sort((a, b) => a - b);
+      merged.push({
+        kind: 'body',
+        regions: allRegions,
+        medianHeight: heights[Math.floor(heights.length / 2)],
+        leftEdge: group[0].leftEdge,
+        text: allText,
+      });
+    }
+  }
+
+  return merged;
 }
 
 // ── Rendering classified lines to docx elements ──────────────────────────────
@@ -380,4 +514,6 @@ export const _testOnly = {
   classifyLines,
   computeGlobalMedianHeight,
   renderBlocks,
+  validateTableAlignment,
+  mergeConsecutiveBody,
 };
