@@ -37,11 +37,23 @@ describe('inferQuality', () => {
     const regions = [
       { text: 'normal', bbox: [0, 0, 100, 20] as [number, number, number, number] },
       { text: 'normal', bbox: [0, 30, 100, 20] as [number, number, number, number] },
-      { text: 'tiny', bbox: [0, 60, 100, 3] as [number, number, number, number] },
+      { text: 'tiny', bbox: [0, 60, 100, 1] as [number, number, number, number] },
       { text: 'normal', bbox: [0, 70, 100, 20] as [number, number, number, number] },
     ];
     const result = inferQuality('normal normal tiny normal', 'ocr', 0.9, regions);
     expect(result.qualityFlags).toContain('height-anomaly');
+  });
+
+  it('does not flag height anomaly for intentional heading/body size variation', () => {
+    // A heading at 40px and body text at 20px should NOT trigger an anomaly
+    const regions = [
+      { text: 'Heading', bbox: [0, 0, 400, 40] as [number, number, number, number] },
+      { text: 'body text', bbox: [0, 50, 400, 20] as [number, number, number, number] },
+      { text: 'more body', bbox: [0, 80, 400, 20] as [number, number, number, number] },
+      { text: 'even more', bbox: [0, 110, 400, 22] as [number, number, number, number] },
+    ];
+    const result = inferQuality('Heading body text more body even more', 'ocr', 0.9, regions);
+    expect(result.qualityFlags).not.toContain('height-anomaly');
   });
 
   it('does not flag height anomaly for consistent heights', () => {
@@ -52,5 +64,26 @@ describe('inferQuality', () => {
     ];
     const result = inferQuality('line1 line2 line3', 'ocr', 0.9, regions);
     expect(result.qualityFlags).not.toContain('height-anomaly');
+  });
+
+  it('does not flag symbol-noise for common typographic characters', () => {
+    const text = '• Reduce compliance risk\n• One-click audit readiness\n• Built-in regulatory checks\n— "Automate invoice review"';
+    const result = inferQuality(text, 'ocr', 0.9);
+    expect(result.qualityFlags).not.toContain('symbol-noise');
+  });
+
+  it('gives high confidence for clear English marketing/business text', () => {
+    const text = [
+      'Invoice compliance automation for healthcare,',
+      'construction, and logistics firms.',
+      'Reduce compliance risk.',
+      'One-click audit readiness.',
+      'Built-in regulatory checks.',
+      'Automate invoice review.',
+    ].join('\n');
+    const result = inferQuality(text, 'ocr', 0.9);
+    expect(result.qualityScore).toBeGreaterThan(0.85);
+    expect(result.qualityFlags).not.toContain('dictionary-miss');
+    expect(result.qualityFlags).not.toContain('symbol-noise');
   });
 });

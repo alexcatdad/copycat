@@ -13,7 +13,7 @@ function suspiciousSymbolRatio(text: string): number {
     if (/\s/.test(char)) {
       continue;
     }
-    if (!/[\p{L}\p{N}.,:;!?()\-/$%#@&+]/u.test(char)) {
+    if (!/[\p{L}\p{N}.,:;!?()\-/$%#@&+•·–—""''…™®©°×¹²³½¼¾→←↑↓✓✗★☆▪▸►■□▶●○◆◇\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u2026]/u.test(char)) {
       suspicious += 1;
     }
   }
@@ -55,6 +55,30 @@ const COMMON_WORDS = new Set([
   'street', 'avenue', 'road', 'city', 'state', 'zip', 'code', 'country',
   'signed', 'date', 'signature', 'print', 'witness', 'notary', 'seal',
   'effective', 'applicable', 'provided', 'required', 'authorized', 'approved',
+
+  // Business, compliance, and industry terms
+  'invoice', 'invoices', 'compliance', 'automation', 'automate', 'automated',
+  'healthcare', 'construction', 'logistics', 'firms', 'firm', 'enterprise',
+  'reduce', 'risk', 'audit', 'readiness', 'regulatory', 'checks', 'review',
+  'click', 'built', 'ready', 'manage', 'management', 'process', 'processing',
+  'system', 'solution', 'solutions', 'software', 'platform', 'tool', 'tools',
+  'customer', 'customers', 'client', 'clients', 'account', 'accounts',
+  'order', 'orders', 'delivery', 'shipping', 'tracking', 'status',
+  'inventory', 'supply', 'chain', 'vendor', 'vendors', 'supplier', 'suppliers',
+  'budget', 'revenue', 'profit', 'margin', 'growth', 'sales', 'market',
+  'finance', 'financial', 'tax', 'taxes', 'billing', 'receipt', 'receipts',
+  'policy', 'policies', 'regulation', 'regulations', 'standard', 'standards',
+  'quality', 'control', 'assurance', 'verify', 'verification', 'validate',
+  'approval', 'workflow', 'dashboard', 'report', 'reports', 'analytics',
+  'integration', 'integrate', 'connect', 'connected', 'secure', 'security',
+  'access', 'user', 'users', 'admin', 'role', 'roles', 'permission',
+  'feature', 'features', 'option', 'options', 'setting', 'settings',
+  'support', 'help', 'contact', 'learn', 'more', 'start', 'free', 'plan',
+  'pricing', 'demo', 'trial', 'sign', 'login', 'register', 'download',
+  'upload', 'save', 'delete', 'edit', 'create', 'update', 'search', 'filter',
+  'view', 'list', 'detail', 'details', 'open', 'close', 'submit', 'cancel',
+  'next', 'previous', 'home', 'menu', 'navigation', 'header', 'footer',
+  'image', 'file', 'folder', 'files', 'type', 'format', 'size', 'version',
 ]);
 
 /**
@@ -93,8 +117,10 @@ function hasHeightAnomaly(regions: OCRRegion[]): boolean {
   const median = heights[Math.floor(heights.length / 2)];
   if (median <= 0) return false;
 
-  // Check if any height deviates more than 50% from the median
-  return heights[heights.length - 1] > median * 1.5 || heights[0] < median * 0.5;
+  // Check if any height deviates more than 3x from the median.
+  // A generous threshold avoids false positives on documents with
+  // intentional size variation (e.g. headings vs body text).
+  return heights[heights.length - 1] > median * 3 || heights[0] < median * 0.3;
 }
 
 export function inferQuality(
