@@ -42,6 +42,7 @@
   let hfToken = $state<string | undefined>(undefined);
   let strictEngineSelection = $state(false);
   let forceOcrForPdf = $state(false);
+  let benchmarkPreprocess = $state<import('./lib/preprocessing/image-preprocessor').PreprocessOptions | undefined>(undefined);
   let sourcePdfBytes = $state<Uint8Array | undefined>(undefined);
   let sourceName = $state('');
   let historyItems = $state<JobListItem[]>([]);
@@ -56,7 +57,11 @@
   }
 
   function isOcrModel(value: string | null): value is OcrModel {
-    return value === 'janus-pro-1b' || value === 'florence2' || value === 'trocr-hybrid';
+    return [
+      'janus-pro-1b', 'florence2', 'trocr-hybrid',
+      'got-ocr2', 'paddleocr', 'donut',
+      'trocr-base', 'florence2-large', 'tesseract-combined',
+    ].includes(value ?? '');
   }
 
   function revokePages(items: PageImage[]) {
@@ -365,6 +370,7 @@
           processed = await processPipeline(activeEngine, parsedPages, {
             pageIndices: pageIndicesForOcr,
             existingResults: initialResults,
+            preprocess: benchmarkPreprocess,
             onPageComplete: (_current, _total, pageIndex, result) => {
               onPageResult(pageIndex, result);
             },
@@ -535,6 +541,14 @@
     const requestedToken = params.get('hfToken');
     strictEngineSelection = params.get('strictEngine') === '1' || params.get('strictEngine') === 'true';
     forceOcrForPdf = params.get('forceOcr') === '1' || params.get('forceOcr') === 'true';
+    const rawPreprocess = params.get('preprocess');
+    if (rawPreprocess) {
+      try {
+        benchmarkPreprocess = JSON.parse(rawPreprocess);
+      } catch {
+        // ignore malformed preprocess JSON
+      }
+    }
     if (isOcrModel(requestedModel)) {
       ocrModel = requestedModel;
     }
