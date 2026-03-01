@@ -160,7 +160,7 @@ export class Florence2Engine implements OCREngine {
     }
 
     const text = labels.join(' ');
-    const quality = inferQuality(text, 'ocr');
+    const quality = inferQuality(text, 'ocr', undefined, regions);
     return {
       text,
       regions,

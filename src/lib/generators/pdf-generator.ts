@@ -162,11 +162,16 @@ function orderByColumns(regions: OCRRegion[], pageWidth: number): OCRRegion[] {
 
   for (const region of valid) {
     const centerX = region.bbox[0] + region.bbox[2] / 2;
+    let assigned = false;
     for (let c = 0; c < columns.length; c++) {
       if (centerX >= columnBoundaries[c] && centerX < columnBoundaries[c + 1]) {
         columns[c].push(region);
+        assigned = true;
         break;
       }
+    }
+    if (!assigned) {
+      columns[columns.length - 1].push(region);
     }
   }
 
@@ -201,15 +206,9 @@ function groupRegionsIntoLines(regions: OCRRegion[]): OCRRegion[][] {
   // Use median-based threshold for adaptive line grouping
   const groupingThreshold = medianHeight * 0.4;
 
+  // Preserve incoming order (column-by-column from orderByColumns)
   const sorted = [...regions]
-    .filter((region) => region.text.trim().length > 0)
-    .sort((a, b) => {
-      const yDiff = a.bbox[1] - b.bbox[1];
-      if (Math.abs(yDiff) > groupingThreshold) {
-        return yDiff;
-      }
-      return a.bbox[0] - b.bbox[0];
-    });
+    .filter((region) => region.text.trim().length > 0);
 
   const lines: OCRRegion[][] = [];
 

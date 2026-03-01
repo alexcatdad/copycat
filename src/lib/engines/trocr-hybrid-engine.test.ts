@@ -89,7 +89,17 @@ describe('TrOcrHybridEngine', () => {
 
   it('disposes resources on dispose()', async () => {
     await engine.initialize();
+
+    const worker = (engine as any).tesseractWorker;
+    const pipelineFn = (engine as any).trOcrPipeline;
+    const terminateSpy = vi.spyOn(worker, 'terminate');
+    // trOcrPipeline is a function from pipeline(); add a dispose spy if present
+    if (typeof pipelineFn?.dispose === 'function') {
+      vi.spyOn(pipelineFn, 'dispose');
+    }
+
     await engine.dispose();
-    // Should not throw
+
+    expect(terminateSpy).toHaveBeenCalled();
   });
 });

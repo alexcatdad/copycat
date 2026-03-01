@@ -293,7 +293,13 @@ function mergeConsecutiveBody(classified: ClassifiedLine[]): ClassifiedLine[] {
         ? curr.medianHeight / prev.medianHeight
         : 1;
 
-      if (leftDiff <= 10 && heightRatio >= 0.8 && heightRatio <= 1.2) {
+      // 3. Vertical gap not too large (visually separate paragraphs shouldn't merge)
+      const prevBottom = Math.max(...prev.regions.map(r => r.bbox[1] + r.bbox[3]));
+      const currTop = Math.min(...curr.regions.map(r => r.bbox[1]));
+      const verticalGap = currTop - prevBottom;
+      const maxGap = Math.max(20, 1.5 * prev.medianHeight);
+
+      if (leftDiff <= 10 && heightRatio >= 0.8 && heightRatio <= 1.2 && verticalGap <= maxGap) {
         group.push(curr);
         i++;
       } else {

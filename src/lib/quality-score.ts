@@ -93,8 +93,8 @@ function hasHeightAnomaly(regions: OCRRegion[]): boolean {
   const median = heights[Math.floor(heights.length / 2)];
   if (median <= 0) return false;
 
-  // Check if any height is more than 3x the median
-  return heights[heights.length - 1] > median * 3 || heights[0] < median / 3;
+  // Check if any height deviates more than 50% from the median
+  return heights[heights.length - 1] > median * 1.5 || heights[0] < median * 0.5;
 }
 
 export function inferQuality(
@@ -145,7 +145,7 @@ export function inferQuality(
   // Dictionary-based plausibility check
   if (wordCount >= 20) {
     const dictRatio = dictionaryMatchRatio(trimmed);
-    if (dictRatio < 0.15) {
+    if (dictRatio < 0.5) {
       score -= 0.15;
       flags.push('dictionary-miss');
     }

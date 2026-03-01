@@ -1,3 +1,5 @@
+import { blobToDataUrl } from '../utils/blob';
+
 /**
  * Image preprocessor for OCR — applies ABBYY-style image cleanup to improve
  * recognition accuracy before sending images to the model.
@@ -144,8 +146,12 @@ function enhanceContrast(
       }
       // Redistribute excess evenly
       const perBin = Math.floor(excess / 256);
+      const remainder = excess - perBin * 256;
       for (let i = 0; i < 256; i++) {
         hist[i] += perBin;
+      }
+      for (let i = 0; i < remainder; i++) {
+        hist[i] += 1;
       }
 
       // Build CDF
@@ -211,7 +217,7 @@ function medianFilter3x3(gray: Uint8Array, width: number, height: number): Uint8
         }
       }
 
-      // Sort to find median (network sort for 9 elements)
+      // Sort to find median (selection sort for 9 elements)
       for (let i = 0; i < 9; i++) {
         for (let j = i + 1; j < 9; j++) {
           if (kernel[j] < kernel[i]) {
@@ -256,7 +262,7 @@ function detectSkewAngle(gray: Uint8Array, width: number, height: number): numbe
     // Compute horizontal projection profile at this angle
     const projection = new Uint32Array(height);
 
-    // Sample every 2nd pixel for speed
+    // Sample every 2nd column for speed
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 2) {
         const rx = Math.round(cosA * (x - centerX) - sinA * (y - centerY) + centerX);
@@ -276,8 +282,8 @@ function detectSkewAngle(gray: Uint8Array, width: number, height: number): numbe
       sumSq += projection[i] * projection[i];
       count++;
     }
-    const mean = sum / Math.max(count, 1);
-    const variance = sumSq / Math.max(count, 1) - mean * mean;
+    const projMean = sum / Math.max(count, 1);
+    const variance = sumSq / Math.max(count, 1) - projMean * projMean;
 
     if (variance > bestVariance) {
       bestVariance = variance;
@@ -504,16 +510,6 @@ async function canvasToBlob(canvas: OffscreenCanvas | HTMLCanvasElement): Promis
       else reject(new Error('Canvas toBlob returned null'));
     }, 'image/png');
   });
-}
-
-async function blobToDataUrl(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return `data:${blob.type};base64,${btoa(binary)}`;
 }
 
 /**

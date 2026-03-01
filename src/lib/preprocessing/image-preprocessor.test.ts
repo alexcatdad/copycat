@@ -170,26 +170,43 @@ describe('medianFilter3x3', () => {
 });
 
 describe('detectSkewAngle', () => {
-  it('returns 0 for a uniform image', () => {
-    const gray = new Uint8Array(100).fill(128);
-    const angle = detectSkewAngle(gray, 10, 10);
-    expect(Math.abs(angle)).toBeLessThanOrEqual(5);
-  });
-
-  it('returns an angle within the detection range', () => {
-    // Create image with horizontal text-like pattern
-    const width = 50;
-    const height = 50;
+  it('returns approximately 0 for horizontal lines', () => {
+    // Use a realistic-size image with clear horizontal text-like lines
+    const width = 200;
+    const height = 200;
     const gray = new Uint8Array(width * height).fill(255);
-    // Draw horizontal dark lines
-    for (let y of [10, 20, 30]) {
-      for (let x = 5; x < 45; x++) {
-        gray[y * width + x] = 0;
+    // Draw thick horizontal dark lines (3px tall to simulate text)
+    for (const baseY of [40, 80, 120, 160]) {
+      for (let dy = 0; dy < 3; dy++) {
+        for (let x = 20; x < 180; x++) {
+          gray[(baseY + dy) * width + x] = 0;
+        }
       }
     }
     const angle = detectSkewAngle(gray, width, height);
-    expect(angle).toBeGreaterThanOrEqual(-5);
-    expect(angle).toBeLessThanOrEqual(5);
+    expect(Math.abs(angle)).toBeLessThanOrEqual(1);
+  });
+
+  it('detects a known skew angle', () => {
+    const width = 200;
+    const height = 200;
+    const gray = new Uint8Array(width * height).fill(255);
+    // Draw thick lines rotated by ~2 degrees
+    const skewDeg = 2;
+    const skewRad = (skewDeg * Math.PI) / 180;
+    for (const baseY of [50, 90, 130, 170]) {
+      for (let dy = 0; dy < 3; dy++) {
+        for (let x = 20; x < 180; x++) {
+          const y = Math.round(baseY + dy + (x - 100) * Math.tan(skewRad));
+          if (y >= 0 && y < height) {
+            gray[y * width + x] = 0;
+          }
+        }
+      }
+    }
+    // detectSkewAngle returns the correction angle (negative of actual skew)
+    const angle = detectSkewAngle(gray, width, height);
+    expect(Math.abs(angle + skewDeg)).toBeLessThanOrEqual(1.5);
   });
 });
 

@@ -2,6 +2,7 @@ import { createWorker } from 'tesseract.js';
 import { pipeline, env } from '@huggingface/transformers';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 import { inferQuality } from '../quality-score';
+import { blobToDataUrl } from '../utils/blob';
 
 const TROCR_MODEL_ID = 'Xenova/trocr-small-printed';
 const LINE_PADDING = 4; // pixels of padding around detected lines
@@ -189,9 +190,13 @@ export class TrOcrHybridEngine implements OCREngine {
             confidence: w.confidence,
           }));
 
-          if (words.length === 0) continue;
-
-          const lineText = words.map((w: any) => w.text).join(' ');
+          let lineText: string;
+          if (words.length === 0) {
+            if (!line.text?.trim() && !line.bbox) continue;
+            lineText = line.text ?? '';
+          } else {
+            lineText = words.map((w: any) => w.text).join(' ');
+          }
           if (!lineText.trim()) continue;
 
           lines.push({
@@ -244,18 +249,9 @@ export class TrOcrHybridEngine implements OCREngine {
     // Convert to data URL
     if (canvas instanceof OffscreenCanvas) {
       const croppedBlob = await canvas.convertToBlob({ type: 'image/png' });
-      return await this.blobToDataUrl(croppedBlob);
+      return await blobToDataUrl(croppedBlob);
     }
     return canvas.toDataURL('image/png');
   }
 
-  private async blobToDataUrl(blob: Blob): Promise<string> {
-    const buffer = await blob.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return `data:${blob.type};base64,${btoa(binary)}`;
-  }
 }
