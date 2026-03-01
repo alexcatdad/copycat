@@ -1,28 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createEngine } from './index';
-import { Florence2Engine } from './florence2-engine';
-import { JanusOcrEngine } from './janus-ocr-engine';
 import { MockEngine } from './mock-engine';
 import { TesseractEngine } from './tesseract-engine';
 import { TrOcrHybridEngine } from './trocr-hybrid-engine';
-import { GotOcr2Engine } from './got-ocr2-engine';
-import { Florence2LargeEngine } from './florence2-large-engine';
 import { TrOcrBaseEngine } from './trocr-base-engine';
 import { DonutEngine } from './donut-engine';
 import { PaddleOcrEngine } from './paddleocr-engine';
 import { TesseractCombinedEngine } from './tesseract-combined-engine';
+import { NougatEngine } from './nougat-engine';
+import { MgpStrEngine } from './mgp-str-engine';
 
-vi.mock('./florence2-engine');
-vi.mock('./janus-ocr-engine');
 vi.mock('./mock-engine');
 vi.mock('./tesseract-engine');
 vi.mock('./trocr-hybrid-engine');
-vi.mock('./got-ocr2-engine');
-vi.mock('./florence2-large-engine');
 vi.mock('./trocr-base-engine');
 vi.mock('./donut-engine');
 vi.mock('./paddleocr-engine');
 vi.mock('./tesseract-combined-engine');
+vi.mock('./nougat-engine');
+vi.mock('./mgp-str-engine');
 
 describe('createEngine', () => {
   it('returns TrOcrHybridEngine with webgpu for premium tier by default', async () => {
@@ -33,26 +29,6 @@ describe('createEngine', () => {
   it('returns TrOcrHybridEngine with wasm for standard tier by default', async () => {
     await createEngine('standard');
     expect(TrOcrHybridEngine).toHaveBeenCalledWith('wasm');
-  });
-
-  it('returns JanusOcrEngine with webgpu for premium when model=janus-pro-1b', async () => {
-    await createEngine('premium', { model: 'janus-pro-1b' });
-    expect(JanusOcrEngine).toHaveBeenCalledWith('webgpu');
-  });
-
-  it('returns JanusOcrEngine with wasm for standard when model=janus-pro-1b', async () => {
-    await createEngine('standard', { model: 'janus-pro-1b' });
-    expect(JanusOcrEngine).toHaveBeenCalledWith('wasm');
-  });
-
-  it('returns Florence2Engine with webgpu for premium when model=florence2', async () => {
-    await createEngine('premium', { model: 'florence2' });
-    expect(Florence2Engine).toHaveBeenCalledWith('webgpu');
-  });
-
-  it('returns Florence2Engine with wasm for standard when model=florence2', async () => {
-    await createEngine('standard', { model: 'florence2' });
-    expect(Florence2Engine).toHaveBeenCalledWith('wasm');
   });
 
   it('returns TesseractEngine for basic tier', async () => {
@@ -68,27 +44,6 @@ describe('createEngine', () => {
     });
   });
 
-  // New engine tests
-  it('returns GotOcr2Engine with webgpu for premium when model=got-ocr2', async () => {
-    await createEngine('premium', { model: 'got-ocr2' });
-    expect(GotOcr2Engine).toHaveBeenCalledWith('webgpu');
-  });
-
-  it('returns GotOcr2Engine with wasm for standard when model=got-ocr2', async () => {
-    await createEngine('standard', { model: 'got-ocr2' });
-    expect(GotOcr2Engine).toHaveBeenCalledWith('wasm');
-  });
-
-  it('returns Florence2LargeEngine with webgpu for premium when model=florence2-large', async () => {
-    await createEngine('premium', { model: 'florence2-large' });
-    expect(Florence2LargeEngine).toHaveBeenCalledWith('webgpu');
-  });
-
-  it('returns Florence2LargeEngine with wasm for standard when model=florence2-large', async () => {
-    await createEngine('standard', { model: 'florence2-large' });
-    expect(Florence2LargeEngine).toHaveBeenCalledWith('wasm');
-  });
-
   it('returns TrOcrBaseEngine with webgpu for premium when model=trocr-base', async () => {
     await createEngine('premium', { model: 'trocr-base' });
     expect(TrOcrBaseEngine).toHaveBeenCalledWith('webgpu');
@@ -99,6 +54,26 @@ describe('createEngine', () => {
     expect(TrOcrBaseEngine).toHaveBeenCalledWith('wasm');
   });
 
+  it('returns TrOcrHybridEngine with handwritten model for premium when model=trocr-small-handwritten', async () => {
+    await createEngine('premium', { model: 'trocr-small-handwritten' });
+    expect(TrOcrHybridEngine).toHaveBeenCalledWith('webgpu', 'eng', 'Xenova/trocr-small-handwritten');
+  });
+
+  it('returns TrOcrHybridEngine with handwritten model for standard when model=trocr-small-handwritten', async () => {
+    await createEngine('standard', { model: 'trocr-small-handwritten' });
+    expect(TrOcrHybridEngine).toHaveBeenCalledWith('wasm', 'eng', 'Xenova/trocr-small-handwritten');
+  });
+
+  it('returns TrOcrBaseEngine with handwritten model for premium when model=trocr-base-handwritten', async () => {
+    await createEngine('premium', { model: 'trocr-base-handwritten' });
+    expect(TrOcrBaseEngine).toHaveBeenCalledWith('webgpu', 'eng', 'Xenova/trocr-base-handwritten');
+  });
+
+  it('returns TrOcrBaseEngine with handwritten model for standard when model=trocr-base-handwritten', async () => {
+    await createEngine('standard', { model: 'trocr-base-handwritten' });
+    expect(TrOcrBaseEngine).toHaveBeenCalledWith('wasm', 'eng', 'Xenova/trocr-base-handwritten');
+  });
+
   it('returns DonutEngine with webgpu for premium when model=donut', async () => {
     await createEngine('premium', { model: 'donut' });
     expect(DonutEngine).toHaveBeenCalledWith('webgpu');
@@ -107,6 +82,26 @@ describe('createEngine', () => {
   it('returns DonutEngine with wasm for standard when model=donut', async () => {
     await createEngine('standard', { model: 'donut' });
     expect(DonutEngine).toHaveBeenCalledWith('wasm');
+  });
+
+  it('returns NougatEngine with webgpu for premium when model=nougat', async () => {
+    await createEngine('premium', { model: 'nougat' });
+    expect(NougatEngine).toHaveBeenCalledWith('webgpu');
+  });
+
+  it('returns NougatEngine with wasm for standard when model=nougat', async () => {
+    await createEngine('standard', { model: 'nougat' });
+    expect(NougatEngine).toHaveBeenCalledWith('wasm');
+  });
+
+  it('returns MgpStrEngine with webgpu for premium when model=mgp-str', async () => {
+    await createEngine('premium', { model: 'mgp-str' });
+    expect(MgpStrEngine).toHaveBeenCalledWith('webgpu');
+  });
+
+  it('returns MgpStrEngine with wasm for standard when model=mgp-str', async () => {
+    await createEngine('standard', { model: 'mgp-str' });
+    expect(MgpStrEngine).toHaveBeenCalledWith('wasm');
   });
 
   it('returns PaddleOcrEngine with webgpu for premium when model=paddleocr', async () => {

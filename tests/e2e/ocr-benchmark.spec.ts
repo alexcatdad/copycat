@@ -28,7 +28,12 @@ const ENGINES: BenchmarkEngine[] = [
   { label: 'tesseract-combined', tier: 'basic', model: 'tesseract-combined' },
   { label: 'trocr-hybrid (standard)', tier: 'standard', model: 'trocr-hybrid' },
   { label: 'trocr-base (standard)', tier: 'standard', model: 'trocr-base' },
+  { label: 'trocr-small-handwritten (standard)', tier: 'standard', model: 'trocr-small-handwritten' },
+  { label: 'trocr-base-handwritten (standard)', tier: 'standard', model: 'trocr-base-handwritten' },
   { label: 'donut (standard)', tier: 'standard', model: 'donut' },
+  { label: 'nougat (standard)', tier: 'standard', model: 'nougat' },
+  { label: 'mgp-str (standard)', tier: 'standard', model: 'mgp-str' },
+  { label: 'paddleocr (standard)', tier: 'standard', model: 'paddleocr' },
 ];
 
 interface NamedPreprocessConfig {

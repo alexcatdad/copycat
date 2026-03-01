@@ -4,7 +4,7 @@ import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 import { inferQuality } from '../quality-score';
 import { blobToDataUrl } from '../utils/blob';
 
-const TROCR_MODEL_ID = 'Xenova/trocr-small-printed';
+const DEFAULT_MODEL_ID = 'Xenova/trocr-small-printed';
 const LINE_PADDING = 4; // pixels of padding around detected lines
 
 interface DetectedLine {
@@ -22,11 +22,13 @@ export class TrOcrHybridEngine implements OCREngine {
   private tesseractWorker: Awaited<ReturnType<typeof createWorker>> | null = null;
   private trOcrPipeline: any = null;
   private readonly device: 'webgpu' | 'wasm';
+  private readonly modelId: string;
   private langs: string;
 
-  constructor(device: 'webgpu' | 'wasm' = 'webgpu', langs = 'eng') {
+  constructor(device: 'webgpu' | 'wasm' = 'webgpu', langs = 'eng', modelId = DEFAULT_MODEL_ID) {
     this.device = device;
     this.langs = langs;
+    this.modelId = modelId;
   }
 
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
@@ -50,7 +52,7 @@ export class TrOcrHybridEngine implements OCREngine {
     onProgress?.(0.4);
 
     // Initialize TrOCR pipeline for text recognition
-    this.trOcrPipeline = await pipeline('image-to-text', TROCR_MODEL_ID, {
+    this.trOcrPipeline = await pipeline('image-to-text', this.modelId, {
       device: this.device,
       dtype: this.device === 'webgpu' ? 'fp32' : 'q8',
     });

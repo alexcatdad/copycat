@@ -8,12 +8,10 @@ import { evaluateOCRQuality } from '../../src/lib/ocr-quality';
 type LiveTier = 'basic' | 'standard';
 
 const LIVE_OCR_ENABLED = process.env.LIVE_OCR === '1';
-const HF_TOKEN = process.env.HF_TOKEN;
 const LIVE_OCR_TIERS = (process.env.LIVE_OCR_TIERS ?? 'standard')
   .split(',')
   .map((tier) => tier.trim())
   .filter((tier): tier is LiveTier => tier === 'basic' || tier === 'standard');
-const STANDARD_MODEL_CONFIG_URL = 'https://huggingface.co/onnx-community/Janus-Pro-1B-ONNX/resolve/main/config.json';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LIVE_JPEG = path.join(__dirname, '../fixtures/live-ocr-sample.jpg');
@@ -57,11 +55,10 @@ async function createScannedPdfFromJpeg(jpegPath: string): Promise<Buffer> {
 }
 
 function queryForTier(tier: LiveTier): string {
-  const tokenParam = HF_TOKEN ? `&hfToken=${encodeURIComponent(HF_TOKEN)}` : '';
   if (tier === 'standard') {
-    return `/?engine=standard&strictEngine=1&model=janus-pro-1b${tokenParam}`;
+    return '/?engine=standard&strictEngine=1&model=trocr-hybrid';
   }
-  return `/?engine=basic&strictEngine=1${tokenParam}`;
+  return '/?engine=basic&strictEngine=1';
 }
 
 function qualityThresholds(tier: LiveTier): { charAccuracy: number; wordAccuracy: number } {
@@ -125,34 +122,12 @@ async function restartToIdle(page: Page): Promise<void> {
   await expect(page.locator('.upload-zone')).toBeVisible();
 }
 
-async function assertStandardModelAccess(): Promise<void> {
-  if (!LIVE_OCR_TIERS.includes('standard')) {
-    return;
-  }
-
-  const headers: Record<string, string> = {};
-  if (HF_TOKEN) {
-    headers.Authorization = `Bearer ${HF_TOKEN}`;
-  }
-
-  const response = await fetch(STANDARD_MODEL_CONFIG_URL, { method: 'HEAD', headers });
-  if (response.ok) {
-    return;
-  }
-
-  throw new Error(
-    `Janus model access check failed (HTTP ${response.status}). `
-    + 'Set HF_TOKEN with access to onnx-community/Janus-Pro-1B-ONNX for repeatable standard-tier runs.',
-  );
-}
-
 test.describe('Live OCR production path validation', () => {
   test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run live OCR artifact tests.');
 
   test('covers image OCR, native PDF, forced OCR PDF, downloads, history, and clear paths', async ({ page }) => {
     test.setTimeout(30 * 60 * 1000);
     expect(LIVE_OCR_TIERS.length).toBeGreaterThan(0);
-    await assertStandardModelAccess();
 
     const nativePdfBuffer = await createNativeTextPdf();
     const scannedPdfBuffer = await createScannedPdfFromJpeg(LIVE_JPEG);
@@ -212,7 +187,7 @@ test.describe('Live OCR production path validation', () => {
 
       console.log('LIVE_OCR_PATH_RESULT', JSON.stringify({
         tier,
-        model: 'janus-pro-1b',
+        model: 'trocr-hybrid',
         image: {
           charAccuracy: imageQuality.charAccuracy,
           wordAccuracy: imageQuality.wordAccuracy,

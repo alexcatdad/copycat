@@ -22,7 +22,7 @@
   setupI18n();
 
   const LOW_QUALITY_THRESHOLD = 0.8;
-  const PREMIUM_JANUS_RETRY_THRESHOLD = 0.9;
+  const PREMIUM_PREPROCESS_RETRY_THRESHOLD = 0.9;
   const PREMIUM_TESSERACT_RETRY_THRESHOLD = 0.84;
 
   let appState = $state<AppState>('idle');
@@ -39,7 +39,6 @@
   let useMockEngine = $state(false);
   let mockProfile = $state<MockProfile>('default');
   let ocrModel = $state<OcrModel>('trocr-hybrid');
-  let hfToken = $state<string | undefined>(undefined);
   let strictEngineSelection = $state(false);
   let forceOcrForPdf = $state(false);
   let benchmarkPreprocess = $state<import('./lib/preprocessing/image-preprocessor').PreprocessOptions | undefined>(undefined);
@@ -58,9 +57,10 @@
 
   function isOcrModel(value: string | null): value is OcrModel {
     return [
-      'janus-pro-1b', 'florence2', 'trocr-hybrid',
-      'got-ocr2', 'paddleocr', 'donut',
-      'trocr-base', 'florence2-large', 'tesseract-combined',
+      'trocr-hybrid', 'trocr-base',
+      'trocr-small-handwritten', 'trocr-base-handwritten',
+      'donut', 'nougat', 'mgp-str',
+      'paddleocr', 'tesseract-combined',
     ].includes(value ?? '');
   }
 
@@ -146,7 +146,7 @@
   }
 
   async function initEngine(tier: EngineTier): Promise<OCREngine> {
-    const eng = await createEngine(useMockEngine ? 'mock' : tier, { mockProfile, model: ocrModel, hfToken });
+    const eng = await createEngine(useMockEngine ? 'mock' : tier, { mockProfile, model: ocrModel });
     await eng.initialize((p) => { modelLoadProgress = p; });
     return eng;
   }
@@ -194,12 +194,12 @@
   ): Promise<Array<OCRResult | null>> {
     let merged = [...baseResults];
 
-    const janusRetryIndices = pageIndicesForOcr
-      .filter((index) => (merged[index]?.qualityScore ?? 0) < PREMIUM_JANUS_RETRY_THRESHOLD);
+    const preprocessRetryIndices = pageIndicesForOcr
+      .filter((index) => (merged[index]?.qualityScore ?? 0) < PREMIUM_PREPROCESS_RETRY_THRESHOLD);
 
-    if (janusRetryIndices.length > 0) {
-      const janusCandidates = await processPipeline(activeEngine, parsedPages, {
-        pageIndices: janusRetryIndices,
+    if (preprocessRetryIndices.length > 0) {
+      const preprocessCandidates = await processPipeline(activeEngine, parsedPages, {
+        pageIndices: preprocessRetryIndices,
         existingResults: emptyResults(parsedPages.length),
         preprocess: {
           adaptiveThreshold: true,
@@ -213,8 +213,8 @@
         },
       });
 
-      for (const index of janusRetryIndices) {
-        merged[index] = selectPreferredResult(merged[index] ?? null, janusCandidates[index] ?? null);
+      for (const index of preprocessRetryIndices) {
+        merged[index] = selectPreferredResult(merged[index] ?? null, preprocessCandidates[index] ?? null);
       }
     }
 
@@ -538,7 +538,6 @@
     const params = new URLSearchParams(window.location.search);
     const requestedEngine = params.get('engine');
     const requestedModel = params.get('model');
-    const requestedToken = params.get('hfToken');
     strictEngineSelection = params.get('strictEngine') === '1' || params.get('strictEngine') === 'true';
     forceOcrForPdf = params.get('forceOcr') === '1' || params.get('forceOcr') === 'true';
     const rawPreprocess = params.get('preprocess');
@@ -552,10 +551,6 @@
     if (isOcrModel(requestedModel)) {
       ocrModel = requestedModel;
     }
-    if (requestedToken) {
-      hfToken = requestedToken;
-    }
-
     if (requestedEngine === 'mock') {
       useMockEngine = true;
       engineTier = 'basic';

@@ -1,10 +1,15 @@
 import { createWorker } from 'tesseract.js';
-import { pipeline, env } from '@huggingface/transformers';
+import {
+  MgpstrForSceneTextRecognition,
+  MgpstrProcessor,
+  RawImage,
+  env,
+} from '@huggingface/transformers';
 import type { OCREngine, OCRResult, OCRRegion, PageImage } from '../types';
 import { inferQuality } from '../quality-score';
 import { blobToDataUrl } from '../utils/blob';
 
-const DEFAULT_MODEL_ID = 'Xenova/trocr-base-printed';
+const MODEL_ID = 'onnx-community/mgp-str-base';
 const LINE_PADDING = 4;
 
 interface DetectedLine {
@@ -18,17 +23,16 @@ interface DetectedLine {
   confidence: number;
 }
 
-export class TrOcrBaseEngine implements OCREngine {
+export class MgpStrEngine implements OCREngine {
   private tesseractWorker: Awaited<ReturnType<typeof createWorker>> | null = null;
-  private trOcrPipeline: any = null;
+  private model: any = null;
+  private processor: any = null;
   private readonly device: 'webgpu' | 'wasm';
-  private readonly modelId: string;
   private langs: string;
 
-  constructor(device: 'webgpu' | 'wasm' = 'webgpu', langs = 'eng', modelId = DEFAULT_MODEL_ID) {
+  constructor(device: 'webgpu' | 'wasm' = 'webgpu', langs = 'eng') {
     this.device = device;
     this.langs = langs;
-    this.modelId = modelId;
   }
 
   async initialize(onProgress?: (progress: number) => void): Promise<void> {
@@ -47,17 +51,20 @@ export class TrOcrBaseEngine implements OCREngine {
       user_defined_dpi: '300',
       preserve_interword_spaces: '1',
     });
-    onProgress?.(0.4);
+    onProgress?.(0.3);
 
-    this.trOcrPipeline = await pipeline('image-to-text', this.modelId, {
+    this.model = await MgpstrForSceneTextRecognition.from_pretrained(MODEL_ID, {
       device: this.device,
       dtype: this.device === 'webgpu' ? 'fp32' : 'q8',
     });
+    onProgress?.(0.7);
+
+    this.processor = await MgpstrProcessor.from_pretrained(MODEL_ID);
     onProgress?.(1);
   }
 
   async processPage(image: PageImage): Promise<OCRResult> {
-    if (!this.tesseractWorker || !this.trOcrPipeline) {
+    if (!this.tesseractWorker || !this.model || !this.processor) {
       throw new Error('Engine not initialized. Call initialize() first.');
     }
 
@@ -88,10 +95,17 @@ export class TrOcrBaseEngine implements OCREngine {
       let recognizedText: string;
       try {
         const croppedDataUrl = await this.cropImageRegion(image, lineX, lineY, lineW, lineH);
-        const trOcrResult = await this.trOcrPipeline(croppedDataUrl, {
-          max_new_tokens: 256,
-        });
-        recognizedText = trOcrResult?.[0]?.generated_text?.trim() ?? '';
+        const rawImage = await RawImage.fromURL(croppedDataUrl);
+        const { pixel_values } = await this.processor(rawImage);
+        const outputs = await this.model({ pixel_values });
+
+        // MGP-STR returns char_logits, bpe_logits, wp_logits
+        // batch_decode fuses them and returns generated_text
+        const decoded = this.processor.batch_decode(outputs.logits);
+        recognizedText = decoded.generated_text?.[0]?.trim() ?? '';
+
+        pixel_values?.dispose?.();
+        outputs.logits?.dispose?.();
       } catch {
         recognizedText = line.text;
       }
@@ -100,12 +114,12 @@ export class TrOcrBaseEngine implements OCREngine {
 
       if (finalText.trim()) {
         if (line.words.length > 1) {
-          const trOcrWords = finalText.split(/\s+/).filter(Boolean);
-          if (trOcrWords.length === line.words.length) {
+          const recognizedWords = finalText.split(/\s+/).filter(Boolean);
+          if (recognizedWords.length === line.words.length) {
             for (let i = 0; i < line.words.length; i++) {
               const word = line.words[i];
               regions.push({
-                text: trOcrWords[i],
+                text: recognizedWords[i],
                 bbox: [
                   word.bbox.x0,
                   word.bbox.y0,
@@ -150,9 +164,13 @@ export class TrOcrBaseEngine implements OCREngine {
       await this.tesseractWorker.terminate();
       this.tesseractWorker = null;
     }
-    if (this.trOcrPipeline) {
-      await this.trOcrPipeline.dispose?.();
-      this.trOcrPipeline = null;
+    if (this.model) {
+      await this.model.dispose?.();
+      this.model = null;
+    }
+    if (this.processor) {
+      await this.processor.dispose?.();
+      this.processor = null;
     }
   }
 
