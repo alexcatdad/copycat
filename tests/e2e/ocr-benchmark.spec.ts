@@ -4,7 +4,7 @@ import {
   evaluateOCRQuality,
   type OCRQualityMetrics,
 } from '../../src/lib/ocr-quality';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -273,41 +273,16 @@ async function uploadPdfAndCollect(
   return { text, elapsedMs };
 }
 
-function formatTable(results: BenchmarkResult[]): string {
-  const header = [
-    'Engine'.padEnd(30),
-    'Fixture'.padEnd(16),
-    'Preprocess'.padEnd(18),
-    'CER'.padEnd(8),
-    'WER'.padEnd(8),
-    'CharAcc'.padEnd(8),
-    'WordAcc'.padEnd(8),
-    'Time(s)',
-  ].join(' | ');
-
-  const separator = '-'.repeat(header.length);
-
-  const rows = results.map((r) =>
-    [
-      r.engine.padEnd(30),
-      r.fixture.padEnd(16),
-      r.preprocess.padEnd(18),
-      r.metrics.charErrorRate.toFixed(4).padEnd(8),
-      r.metrics.wordErrorRate.toFixed(4).padEnd(8),
-      r.metrics.charAccuracy.toFixed(4).padEnd(8),
-      r.metrics.wordAccuracy.toFixed(4).padEnd(8),
-      (r.elapsedMs / 1000).toFixed(1),
-    ].join(' | '),
-  );
-
-  return [separator, header, separator, ...rows, separator].join('\n');
+function safeLabel(label: string): string {
+  return label.replace(/[^a-z0-9-]/gi, '_');
 }
 
+const RESULTS_DIR = path.join(__dirname, '..', 'results');
+
 /* ------------------------------------------------------------------ */
-/*  Test                                                                */
+/*  Environment-variable filtering                                     */
 /* ------------------------------------------------------------------ */
 
-// Allow subset selection via environment variables
 const BENCHMARK_ENGINES = process.env.BENCHMARK_ENGINES
   ? ENGINES.filter((e) =>
       process.env.BENCHMARK_ENGINES!.split(',').some(
@@ -328,30 +303,33 @@ const BENCHMARK_PREPROCESS = process.env.BENCHMARK_PREPROCESS
     )
   : PREPROCESS_CONFIGS;
 
+/* ------------------------------------------------------------------ */
+/*  Per-engine parallel tests                                          */
+/* ------------------------------------------------------------------ */
+
 test.describe('OCR Engine Benchmark', () => {
   test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run OCR benchmark.');
 
-  test('benchmarks all engine × preprocess × fixture combinations', async ({ page }) => {
-    // Very long timeout for comprehensive benchmark
-    test.setTimeout(60 * 60 * 1000); // 1 hour
+  for (const engine of BENCHMARK_ENGINES) {
+    test(`benchmark: ${engine.label}`, async ({ page }) => {
+      // 10 min per engine (30 combos: 5 fixtures × 6 preprocess)
+      test.setTimeout(10 * 60 * 1000);
 
-    // Generate all fixture PDFs
-    const fixturePdfs = new Map<string, Buffer>();
-    for (const fixture of BENCHMARK_FIXTURES) {
-      fixturePdfs.set(fixture.name, await fixture.generatePdf());
-    }
+      // Generate fixture PDFs
+      const fixturePdfs = new Map<string, Buffer>();
+      for (const fixture of BENCHMARK_FIXTURES) {
+        fixturePdfs.set(fixture.name, await fixture.generatePdf());
+      }
 
-    const allResults: BenchmarkResult[] = [];
-    let completed = 0;
-    const total = BENCHMARK_ENGINES.length * BENCHMARK_FIXTURES.length * BENCHMARK_PREPROCESS.length;
+      const results: BenchmarkResult[] = [];
+      let completed = 0;
+      const total = BENCHMARK_FIXTURES.length * BENCHMARK_PREPROCESS.length;
 
-    for (const engine of BENCHMARK_ENGINES) {
       for (const fixture of BENCHMARK_FIXTURES) {
         for (const preprocess of BENCHMARK_PREPROCESS) {
           completed++;
-          const progress = `[${completed}/${total}]`;
           console.log(
-            `${progress} Testing: ${engine.label} | ${fixture.name} | preprocess=${preprocess.name}`,
+            `[${completed}/${total}] ${engine.label} | ${fixture.name} | preprocess=${preprocess.name}`,
           );
 
           const query = buildQuery(engine, preprocess);
@@ -386,49 +364,69 @@ test.describe('OCR Engine Benchmark', () => {
             };
           }
 
-          allResults.push(result);
+          results.push(result);
         }
       }
+
+      // Write per-engine partial results
+      await mkdir(RESULTS_DIR, { recursive: true });
+      await writeFile(
+        path.join(RESULTS_DIR, `benchmark-${safeLabel(engine.label)}.json`),
+        JSON.stringify(results, null, 2),
+      );
+
+      // At least one combo should succeed per engine
+      const successes = results.filter(
+        (r) => !r.extractedText.startsWith('ERROR') && r.extractedText.length > 0,
+      );
+      expect(successes.length).toBeGreaterThan(0);
+    });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Aggregation: merge per-engine results into final report            */
+/* ------------------------------------------------------------------ */
+
+test.describe('OCR Benchmark Report', () => {
+  test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run OCR benchmark.');
+
+  test('aggregate benchmark results', async () => {
+    test.setTimeout(30_000);
+
+    await mkdir(RESULTS_DIR, { recursive: true });
+
+    const files = await readdir(RESULTS_DIR);
+    const partials = files.filter(
+      (f) => f.startsWith('benchmark-') && f.endsWith('.json') && f !== 'benchmark-results.json',
+    );
+
+    if (partials.length === 0) {
+      console.log('No partial benchmark results found — skipping aggregation.');
+      return;
     }
 
-    // Output comparison table
-    console.log('\n\n===== OCR BENCHMARK RESULTS =====\n');
-    console.log(formatTable(allResults));
-
-    // Output summary: best engine per fixture
-    console.log('\n===== BEST ENGINE PER FIXTURE =====\n');
-    for (const fixture of BENCHMARK_FIXTURES) {
-      const fixtureResults = allResults
-        .filter((r) => r.fixture === fixture.name && !r.extractedText.startsWith('ERROR'))
-        .sort((a, b) => a.metrics.charErrorRate - b.metrics.charErrorRate);
-
-      if (fixtureResults.length > 0) {
-        const best = fixtureResults[0];
-        console.log(
-          `${fixture.name}: ${best.engine} + ${best.preprocess} ` +
-            `(CER=${best.metrics.charErrorRate.toFixed(4)}, WER=${best.metrics.wordErrorRate.toFixed(4)})`,
-        );
-      }
+    const allResults: BenchmarkResult[] = [];
+    for (const file of partials) {
+      const data = JSON.parse(await readFile(path.join(RESULTS_DIR, file), 'utf8'));
+      allResults.push(...data);
     }
 
-    // Save results as JSON
-    const resultsDir = path.join(__dirname, '..', 'results');
-    await mkdir(resultsDir, { recursive: true });
-    const resultsPath = path.join(resultsDir, 'benchmark-results.json');
+    // Combined JSON
     const output = {
       timestamp: new Date().toISOString(),
-      engineCount: BENCHMARK_ENGINES.length,
-      fixtureCount: BENCHMARK_FIXTURES.length,
-      preprocessCount: BENCHMARK_PREPROCESS.length,
-      totalCombinations: total,
+      engineCount: new Set(allResults.map((r) => r.engine)).size,
+      fixtureCount: new Set(allResults.map((r) => r.fixture)).size,
+      preprocessCount: new Set(allResults.map((r) => r.preprocess)).size,
+      totalCombinations: allResults.length,
       results: allResults.map(({ extractedText, ...rest }) => rest),
       bestPerFixture: Object.fromEntries(
-        BENCHMARK_FIXTURES.map((fixture) => {
+        [...new Set(allResults.map((r) => r.fixture))].map((fixtureName) => {
           const fixtureResults = allResults
-            .filter((r) => r.fixture === fixture.name && !r.extractedText.startsWith('ERROR'))
+            .filter((r) => r.fixture === fixtureName && !r.extractedText.startsWith('ERROR'))
             .sort((a, b) => a.metrics.charErrorRate - b.metrics.charErrorRate);
           return [
-            fixture.name,
+            fixtureName,
             fixtureResults.length > 0
               ? {
                   engine: fixtureResults[0].engine,
@@ -441,14 +439,13 @@ test.describe('OCR Engine Benchmark', () => {
         }),
       ),
     };
-    await writeFile(resultsPath, JSON.stringify(output, null, 2));
-    console.log(`\nResults saved to: ${resultsPath}`);
+    await writeFile(path.join(RESULTS_DIR, 'benchmark-results.json'), JSON.stringify(output, null, 2));
 
-    // Write markdown summary for CI comment
+    // Markdown report
     const mdLines: string[] = [
       '## OCR Benchmark Results',
       '',
-      `**${BENCHMARK_ENGINES.length}** engines x **${BENCHMARK_FIXTURES.length}** fixtures x **${BENCHMARK_PREPROCESS.length}** preprocessing configs = **${total}** combinations`,
+      `**${output.engineCount}** engines x **${output.fixtureCount}** fixtures x **${output.preprocessCount}** preprocessing configs = **${output.totalCombinations}** combinations`,
       '',
       '### Results',
       '',
@@ -461,26 +458,31 @@ test.describe('OCR Engine Benchmark', () => {
         `| ${r.engine} | ${r.fixture} | ${r.preprocess} | ${err ? 'ERR' : r.metrics.charErrorRate.toFixed(4)} | ${err ? 'ERR' : r.metrics.wordErrorRate.toFixed(4)} | ${err ? 'ERR' : (r.metrics.charAccuracy * 100).toFixed(1) + '%'} | ${err ? 'ERR' : (r.metrics.wordAccuracy * 100).toFixed(1) + '%'} | ${err ? '-' : (r.elapsedMs / 1000).toFixed(1) + 's'} |`,
       );
     }
+
+    const fixtureNames = [...new Set(allResults.map((r) => r.fixture))];
     mdLines.push('', '### Best Engine Per Fixture', '');
-    for (const fixture of BENCHMARK_FIXTURES) {
+    for (const fixtureName of fixtureNames) {
       const fixtureResults = allResults
-        .filter((r) => r.fixture === fixture.name && !r.extractedText.startsWith('ERROR'))
+        .filter((r) => r.fixture === fixtureName && !r.extractedText.startsWith('ERROR'))
         .sort((a, b) => a.metrics.charErrorRate - b.metrics.charErrorRate);
       if (fixtureResults.length > 0) {
         const best = fixtureResults[0];
         mdLines.push(
-          `- **${fixture.name}**: ${best.engine} + ${best.preprocess} (CER=${best.metrics.charErrorRate.toFixed(4)}, Word Acc=${(best.metrics.wordAccuracy * 100).toFixed(1)}%)`,
+          `- **${fixtureName}**: ${best.engine} + ${best.preprocess} (CER=${best.metrics.charErrorRate.toFixed(4)}, Word Acc=${(best.metrics.wordAccuracy * 100).toFixed(1)}%)`,
         );
       }
     }
     mdLines.push('');
-    const mdPath = path.join(resultsDir, 'benchmark-results.md');
-    await writeFile(mdPath, mdLines.join('\n'));
+    await writeFile(path.join(RESULTS_DIR, 'benchmark-results.md'), mdLines.join('\n'));
 
-    // Basic sanity: at least one engine should produce something
-    const successfulResults = allResults.filter(
-      (r) => !r.extractedText.startsWith('ERROR') && r.extractedText.length > 0,
-    );
-    expect(successfulResults.length).toBeGreaterThan(0);
+    console.log(`Aggregated ${allResults.length} results from ${partials.length} engine files.`);
+    console.log('\n===== BEST ENGINE PER FIXTURE =====\n');
+    for (const [fixture, best] of Object.entries(output.bestPerFixture)) {
+      if (best) {
+        console.log(`${fixture}: ${(best as any).engine} + ${(best as any).preprocess} (CER=${(best as any).charErrorRate.toFixed(4)})`);
+      }
+    }
+
+    expect(allResults.length).toBeGreaterThan(0);
   });
 });

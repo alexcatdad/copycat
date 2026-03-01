@@ -1,10 +1,14 @@
 name: OCR Benchmark
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      engines:
+        description: 'Comma-separated engine filter (empty = all 10 engines)'
+        required: false
+        type: string
 
-# Cancel in-flight runs for the same PR
+# Cancel in-flight runs
 concurrency:
   group: benchmark-${{ github.ref }}
   cancel-in-progress: true
@@ -12,7 +16,7 @@ concurrency:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
 
     permissions:
       pull-requests: write
@@ -60,11 +64,12 @@ jobs:
           key: hf-models-${{ runner.os }}-v1
           restore-keys: hf-models-${{ runner.os }}-
 
-      - name: Run OCR benchmark (open models only)
+      - name: Run OCR benchmark (10 engines in parallel)
         env:
           LIVE_OCR: "1"
           CI: "true"
-        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=1
+          BENCHMARK_ENGINES: ${{ inputs.engines }}
+        run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=10
 
       - name: Upload benchmark results
         if: always()
@@ -73,44 +78,3 @@ jobs:
           name: benchmark-results
           path: tests/results/
           retention-days: 30
-
-      - name: Post benchmark results to PR
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-
-            const mdPath = path.join('tests', 'results', 'benchmark-results.md');
-            let body;
-            if (fs.existsSync(mdPath)) {
-              body = fs.readFileSync(mdPath, 'utf8');
-            } else {
-              body = '## OCR Benchmark Results\n\n:warning: Benchmark did not produce results. Check the workflow logs for details.';
-            }
-
-            // Find existing benchmark comment to update
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const marker = '## OCR Benchmark Results';
-            const existing = comments.find(c => c.body?.startsWith(marker));
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
