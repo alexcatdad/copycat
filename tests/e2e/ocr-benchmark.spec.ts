@@ -304,13 +304,29 @@ const BENCHMARK_PREPROCESS = process.env.BENCHMARK_PREPROCESS
   : PREPROCESS_CONFIGS;
 
 /* ------------------------------------------------------------------ */
+/*  Sharding: split engines across CI machines                         */
+/* ------------------------------------------------------------------ */
+
+const SHARD_INDEX = process.env.BENCHMARK_SHARD
+  ? parseInt(process.env.BENCHMARK_SHARD, 10)
+  : undefined;
+const TOTAL_SHARDS = process.env.BENCHMARK_TOTAL_SHARDS
+  ? parseInt(process.env.BENCHMARK_TOTAL_SHARDS, 10)
+  : undefined;
+
+const SHARDED_ENGINES =
+  SHARD_INDEX !== undefined && TOTAL_SHARDS !== undefined
+    ? BENCHMARK_ENGINES.filter((_, i) => i % TOTAL_SHARDS === SHARD_INDEX)
+    : BENCHMARK_ENGINES;
+
+/* ------------------------------------------------------------------ */
 /*  Per-engine parallel tests                                          */
 /* ------------------------------------------------------------------ */
 
 test.describe('OCR Engine Benchmark', () => {
   test.skip(!LIVE_OCR_ENABLED, 'Set LIVE_OCR=1 to run OCR benchmark.');
 
-  for (const engine of BENCHMARK_ENGINES) {
+  for (const engine of SHARDED_ENGINES) {
     test(`benchmark: ${engine.label}`, async ({ page }) => {
       // 10 min per engine (30 combos: 5 fixtures × 6 preprocess)
       test.setTimeout(10 * 60 * 1000);
