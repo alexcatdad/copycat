@@ -15,7 +15,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /* ------------------------------------------------------------------ */
 
 const LIVE_OCR_ENABLED = process.env.LIVE_OCR === '1';
-const HF_TOKEN = process.env.HF_TOKEN;
 
 interface BenchmarkEngine {
   label: string;
@@ -23,17 +22,13 @@ interface BenchmarkEngine {
   model?: string;
 }
 
+// Only open (non-gated) models — no HF_TOKEN required
 const ENGINES: BenchmarkEngine[] = [
   { label: 'tesseract (basic)', tier: 'basic' },
   { label: 'tesseract-combined', tier: 'basic', model: 'tesseract-combined' },
   { label: 'trocr-hybrid (standard)', tier: 'standard', model: 'trocr-hybrid' },
   { label: 'trocr-base (standard)', tier: 'standard', model: 'trocr-base' },
-  { label: 'florence2 (standard)', tier: 'standard', model: 'florence2' },
-  { label: 'florence2-large (standard)', tier: 'standard', model: 'florence2-large' },
-  { label: 'janus-pro-1b (standard)', tier: 'standard', model: 'janus-pro-1b' },
-  { label: 'got-ocr2 (standard)', tier: 'standard', model: 'got-ocr2' },
   { label: 'donut (standard)', tier: 'standard', model: 'donut' },
-  { label: 'paddleocr (standard)', tier: 'standard', model: 'paddleocr' },
 ];
 
 interface NamedPreprocessConfig {
@@ -242,9 +237,6 @@ function buildQuery(engine: BenchmarkEngine, preprocess: NamedPreprocessConfig):
   params.set('forceOcr', '1');
   if (engine.model) {
     params.set('model', engine.model);
-  }
-  if (HF_TOKEN) {
-    params.set('hfToken', HF_TOKEN);
   }
   if (preprocess.config !== false) {
     params.set(

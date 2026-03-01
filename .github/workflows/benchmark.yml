@@ -60,10 +60,9 @@ jobs:
           key: hf-models-${{ runner.os }}-v1
           restore-keys: hf-models-${{ runner.os }}-
 
-      - name: Run OCR benchmark (all engines)
+      - name: Run OCR benchmark (open models only)
         env:
           LIVE_OCR: "1"
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           CI: "true"
         run: bunx playwright test tests/e2e/ocr-benchmark.spec.ts --project=chromium --workers=1
 
